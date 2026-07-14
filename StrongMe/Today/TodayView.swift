@@ -1,0 +1,389 @@
+//
+//  TodayView.swift
+//  StrongMe
+//
+//  Home, 90% of usage. Everything Health already knows renders itself;
+//  the talk dock is the one way in for everything else.
+//
+
+import SwiftData
+import SwiftUI
+
+// MARK: - Toast
+
+@Observable
+final class ToastCenter {
+    private(set) var message: String?
+    private var hideTask: Task<Void, Never>?
+
+    func show(_ text: String) {
+        hideTask?.cancel()
+        withAnimation(.spring(duration: 0.32)) { message = text }
+        hideTask = Task {
+            try? await Task.sleep(for: .seconds(2.1))
+            guard !Task.isCancelled else { return }
+            withAnimation(.spring(duration: 0.32)) { self.message = nil }
+        }
+    }
+}
+
+// MARK: - Today
+
+struct TodayView: View {
+    @Environment(\.modelContext) private var modelContext
+    @Environment(HealthKitService.self) private var health
+    @Environment(ToastCenter.self) private var toast
+
+    @Query private var todaysFood: [FoodEntry]
+    @Query(sort: [SortDescriptor(\UsualMeal.timesLogged, order: .reverse),
+                  SortDescriptor(\UsualMeal.lastUsed, order: .reverse)])
+    private var usuals: [UsualMeal]
+    @Query(sort: \ReflectionEntry.date, order: .reverse) private var reflections: [ReflectionEntry]
+
+    @AppStorage("proteinTargetGrams") private var proteinTarget = 150.0
+    @AppStorage("firstLaunchDate") private var firstLaunchTimestamp = 0.0
+
+    @State private var captureMode: CaptureMode?
+    @State private var showCoachStub = false
+
+    init() {
+        let dayStart = Calendar.current.startOfDay(for: .now)
+        _todaysFood = Query(filter: #Predicate<FoodEntry> { $0.date >= dayStart },
+                            sort: \.date, order: .reverse)
+    }
+
+    private var proteinToday: Double { todaysFood.reduce(0) { $0 + $1.proteinGrams } }
+
+    var body: some View {
+        ZStack(alignment: .bottom) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    header
+                    insightCard
+                        .padding(.top, 20)
+                    StatGrid(snapshot: health.snapshot)
+                        .padding(.top, 16)
+                    ProteinCard(proteinToday: proteinToday, target: proteinTarget)
+                        .padding(.top, 11)
+                    usualRow
+                        .padding(.top, 22)
+                    reflectionSection
+                        .padding(.top, 22)
+                }
+                .padding(.horizontal, 20)
+                .padding(.top, 8)
+                .padding(.bottom, 150)
+            }
+            .scrollIndicators(.hidden)
+
+            TalkDock(
+                onTalk: { captureMode = .voice },
+                onType: { captureMode = .typing(prompt: nil) }
+            )
+
+            if let message = toast.message {
+                ToastView(message: message)
+                    .padding(.bottom, 118)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .background(Palette.app)
+        .sheet(item: $captureMode) { mode in
+            CaptureSheet(mode: mode)
+        }
+        .sheet(isPresented: $showCoachStub) {
+            CoachStubSheet(insight: insightText)
+        }
+        .task {
+            if firstLaunchTimestamp == 0 { firstLaunchTimestamp = Date.now.timeIntervalSince1970 }
+            await health.requestAuthorization()
+            await health.refresh()
+        }
+        .onChange(of: captureMode) { _, newValue in
+            if newValue == nil {
+                Task { await health.refresh() }
+            }
+        }
+    }
+
+    // MARK: Header
+
+    private var header: some View {
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 5) {
+                Text(greeting)
+                    .font(AppFont.coach(30, .medium))
+                    .foregroundStyle(Palette.ink)
+                Text(dateLine)
+                    .font(AppFont.ui(13.5, .medium))
+                    .kerning(0.15)
+                    .foregroundStyle(Palette.muted)
+            }
+            Spacer()
+            Button {
+                toast.show("History arrives with the next milestone")
+            } label: {
+                Image(systemName: "calendar")
+                    .font(.system(size: 17, weight: .medium))
+                    .foregroundStyle(Palette.ink)
+                    .frame(width: 42, height: 42)
+                    .cardBackground(cornerRadius: 14)
+            }
+            .buttonStyle(.plain)
+            .padding(.top, 6)
+        }
+        .padding(.top, 14)
+    }
+
+    private var greeting: String {
+        switch Calendar.current.component(.hour, from: .now) {
+        case 4..<12: "Good morning."
+        case 12..<17: "Good afternoon."
+        default: "Good evening."
+        }
+    }
+
+    private var dateLine: String {
+        let date = Date.now.formatted(.dateTime.weekday(.wide).month(.wide).day())
+        guard firstLaunchTimestamp > 0 else { return date }
+        let first = Date(timeIntervalSince1970: firstLaunchTimestamp)
+        let days = (Calendar.current.dateComponents([.day], from: Calendar.current.startOfDay(for: first),
+                                                    to: Calendar.current.startOfDay(for: .now)).day ?? 0) + 1
+        return "\(date) · Day \(days)"
+    }
+
+    // MARK: Insight
+
+    private var insightText: String {
+        InsightEngine.dailyRead(
+            snapshot: health.snapshot,
+            proteinToday: proteinToday,
+            proteinTarget: proteinTarget,
+            hasLoggedFoodToday: !todaysFood.isEmpty
+        )
+    }
+
+    private var insightCard: some View {
+        Button {
+            showCoachStub = true
+        } label: {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 7) {
+                    IndigoDot()
+                    EyebrowLabel(text: "Today's read", color: Palette.indigo)
+                }
+                Text(markdown(insightText))
+                    .font(AppFont.coach(18.5))
+                    .foregroundStyle(Palette.coachInk)
+                    .lineSpacing(5)
+                    .multilineTextAlignment(.leading)
+
+                HStack(spacing: 5) {
+                    Text("Ask your coach")
+                    Image(systemName: "arrow.right")
+                        .font(.system(size: 11, weight: .semibold))
+                }
+                .font(AppFont.ui(12.5, .semibold))
+                .foregroundStyle(Palette.indigo)
+                .padding(.top, 3)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(20)
+            .background(RoundedRectangle(cornerRadius: 22, style: .continuous).fill(Palette.insightGradient))
+            .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).strokeBorder(Palette.insightBorder))
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func markdown(_ text: String) -> AttributedString {
+        (try? AttributedString(markdown: text)) ?? AttributedString(text)
+    }
+
+    // MARK: Usuals
+
+    private var usualRow: some View {
+        VStack(alignment: .leading, spacing: 11) {
+            HStack(spacing: 7) {
+                Image(systemName: "bolt.fill")
+                    .font(.system(size: 10))
+                    .foregroundStyle(Palette.muted)
+                EyebrowLabel(text: "Your usual · one tap")
+            }
+            .padding(.horizontal, 2)
+
+            ScrollView(.horizontal) {
+                HStack(spacing: 9) {
+                    ForEach(usuals.prefix(6)) { usual in
+                        Button {
+                            quickLog(usual)
+                        } label: {
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(usual.name)
+                                    .font(AppFont.ui(13.5, .semibold))
+                                    .foregroundStyle(Palette.ink)
+                                    .lineLimit(1)
+                                Text("+\(Int(usual.proteinGrams.rounded()))g protein")
+                                    .font(AppFont.ui(11.5, .semibold))
+                                    .foregroundStyle(Palette.apricot)
+                            }
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 11)
+                            .frame(minWidth: 112, alignment: .leading)
+                            .cardBackground(cornerRadius: 15)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.vertical, 4)
+                .padding(.horizontal, 2)
+            }
+            .scrollIndicators(.hidden)
+        }
+    }
+
+    private func quickLog(_ usual: UsualMeal) {
+        modelContext.insert(FoodEntry(mealLabel: LocalFallbackParser.inferMeal(),
+                                      items: usual.items,
+                                      rawText: usual.name))
+        usual.timesLogged += 1
+        usual.lastUsed = .now
+        usual.isSeed = false
+        toast.show("Logged · +\(Int(usual.proteinGrams.rounded()))g protein")
+    }
+
+    // MARK: Reflection
+
+    private var reflectionSection: some View {
+        VStack(alignment: .leading, spacing: 11) {
+            Button {
+                captureMode = .typing(prompt: "How are you feeling? What kind of day was it?")
+            } label: {
+                HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        EyebrowLabel(text: "Reflection", color: Palette.indigo)
+                        Text("How's today feeling?")
+                            .font(AppFont.coach(18))
+                            .foregroundStyle(Palette.coachInk)
+                    }
+                    Spacer()
+                    Image(systemName: "plus")
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundStyle(Palette.indigo)
+                        .frame(width: 34, height: 34)
+                        .background(Circle().fill(.white))
+                        .cardShadow()
+                }
+                .padding(.horizontal, 18)
+                .padding(.vertical, 16)
+                .frame(maxWidth: .infinity)
+                .background(RoundedRectangle(cornerRadius: 20, style: .continuous).fill(Palette.insightGradient))
+                .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).strokeBorder(Palette.insightBorder))
+            }
+            .buttonStyle(.plain)
+
+            ForEach(reflections.prefix(2)) { entry in
+                HStack(alignment: .firstTextBaseline, spacing: 11) {
+                    Text(relativeDay(entry.date))
+                        .font(AppFont.ui(10.5, .bold))
+                        .kerning(0.4)
+                        .foregroundStyle(Palette.muted)
+                        .frame(minWidth: 56, alignment: .leading)
+                    Text("“\(entry.text)”")
+                        .font(AppFont.coach(13.5))
+                        .italic()
+                        .foregroundStyle(Color(hex: 0x3A3F52))
+                        .lineSpacing(2)
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 11)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .cardBackground(cornerRadius: 14)
+            }
+        }
+    }
+
+    private func relativeDay(_ date: Date) -> String {
+        let calendar = Calendar.current
+        if calendar.isDateInToday(date) { return "TODAY" }
+        if calendar.isDateInYesterday(date) { return "YESTERDAY" }
+        return date.formatted(.dateTime.weekday(.abbreviated)).uppercased()
+    }
+}
+
+// MARK: - Toast view
+
+struct ToastView: View {
+    let message: String
+
+    var body: some View {
+        HStack(spacing: 9) {
+            Circle()
+                .fill(Palette.apricot)
+                .frame(width: 18, height: 18)
+                .overlay(
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(.white)
+                )
+            Text(message)
+                .font(AppFont.ui(13.5, .semibold))
+                .foregroundStyle(.white)
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 12)
+        .background(RoundedRectangle(cornerRadius: 15, style: .continuous).fill(Palette.coachInk))
+        .shadow(color: Color(hex: 0x141620).opacity(0.3), radius: 14, y: 10)
+    }
+}
+
+// MARK: - Coach stub (full coach ships next milestone)
+
+struct CoachStubSheet: View {
+    let insight: String
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Capsule()
+                .fill(Color(hex: 0xD6D5CD))
+                .frame(width: 38, height: 5)
+                .frame(maxWidth: .infinity)
+                .padding(.top, 10)
+                .padding(.bottom, 18)
+
+            HStack(spacing: 8) {
+                IndigoDot()
+                EyebrowLabel(text: "Your coach", color: Palette.indigo)
+            }
+
+            Text((try? AttributedString(markdown: insight)) ?? AttributedString(insight))
+                .font(AppFont.coach(19))
+                .foregroundStyle(Color(hex: 0x2A2F42))
+                .lineSpacing(6)
+                .padding(.top, 14)
+
+            Text("The interactive coach — “how am I doing?” and free-form questions answered from your real numbers — arrives in the next build. Only a summary of your trends will ever leave the device, and you'll see exactly what's sent.")
+                .font(AppFont.ui(13.5, .medium))
+                .foregroundStyle(Palette.muted)
+                .lineSpacing(3)
+                .padding(.top, 16)
+
+            Spacer()
+
+            Text("Your coach — not a doctor or dietitian. It defers on anything medical.")
+                .font(AppFont.ui(10.5, .medium))
+                .foregroundStyle(Color(hex: 0xA4A6AF))
+                .frame(maxWidth: .infinity)
+                .padding(.bottom, 8)
+
+            Button { dismiss() } label: {
+                Text("Okay").confirmButtonStyle()
+            }
+        }
+        .padding(.horizontal, 22)
+        .padding(.bottom, 24)
+        .presentationDetents([.medium])
+        .presentationBackground(Palette.app)
+        .presentationCornerRadius(30)
+    }
+}

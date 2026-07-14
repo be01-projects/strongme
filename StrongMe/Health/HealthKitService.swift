@@ -1,0 +1,215 @@
+//
+//  HealthKitService.swift
+//  StrongMe
+//
+//  Tier 0 — automatic. If Apple Health already knows it, never ask.
+//  Reads steps, sleep, workouts, bodyweight, resting HR; writes bodyweight
+//  (the one Tier-1 value we file back so Health stays the source of truth).
+//
+
+import Foundation
+import HealthKit
+import Observation
+
+struct HealthSnapshot {
+    var stepsToday: Int?
+    /// 30-day average of daily step totals
+    var stepsDailyAverage: Int?
+    var sleepLastNight: TimeInterval?
+    var workoutsThisWeek: Int = 0
+    var trainedToday: Bool = false
+    var latestWeight: Double?          // in display unit
+    var weightChangeTwoWeeks: Double?  // in display unit; negative = down
+    var usesPounds: Bool = true
+    var restingHeartRate: Double?
+
+    var weightUnitLabel: String { usesPounds ? "lb" : "kg" }
+}
+
+@Observable
+final class HealthKitService {
+    private let store = HKHealthStore()
+    private(set) var snapshot = HealthSnapshot()
+    private(set) var isAvailable = HKHealthStore.isHealthDataAvailable()
+
+    private var readTypes: Set<HKObjectType> {
+        [
+            HKQuantityType(.stepCount),
+            HKQuantityType(.bodyMass),
+            HKQuantityType(.restingHeartRate),
+            HKCategoryType(.sleepAnalysis),
+            HKObjectType.workoutType(),
+        ]
+    }
+
+    func requestAuthorization() async {
+        guard isAvailable else { return }
+        // UI tests / scripted screenshots: launch with -skip-health-auth
+        guard !ProcessInfo.processInfo.arguments.contains("-skip-health-auth") else { return }
+        do {
+            try await store.requestAuthorization(
+                toShare: [HKQuantityType(.bodyMass)],
+                read: readTypes
+            )
+        } catch {
+            // Denied or restricted: the Today screen degrades to "no data yet"
+        }
+    }
+
+    // MARK: - Refresh
+
+    func refresh() async {
+        guard isAvailable else { return }
+        var snap = HealthSnapshot()
+
+        // Preferred mass unit (assume a US-style lb display if lookup fails)
+        if let units = try? await store.preferredUnits(for: [HKQuantityType(.bodyMass)]),
+           let unit = units[HKQuantityType(.bodyMass)] {
+            snap.usesPounds = unit == .pound()
+        }
+
+        async let steps = stepsToday()
+        async let avg = stepsDailyAverage()
+        async let sleep = sleepLastNight()
+        async let workouts = workoutsThisWeek()
+        async let weight = weightTrend(usesPounds: snap.usesPounds)
+        async let rhr = latestRestingHeartRate()
+
+        snap.stepsToday = await steps
+        snap.stepsDailyAverage = await avg
+        snap.sleepLastNight = await sleep
+        (snap.workoutsThisWeek, snap.trainedToday) = await workouts
+        (snap.latestWeight, snap.weightChangeTwoWeeks) = await weight
+        snap.restingHeartRate = await rhr
+
+        snapshot = snap
+    }
+
+    // MARK: - Writes
+
+    func saveWeight(value: Double, unit: HKUnit) async throws {
+        let quantity = HKQuantity(unit: unit, doubleValue: value)
+        let sample = HKQuantitySample(
+            type: HKQuantityType(.bodyMass),
+            quantity: quantity,
+            start: .now, end: .now
+        )
+        try await store.save(sample)
+        await refresh()
+    }
+
+    // MARK: - Queries
+
+    private func stepsToday() async -> Int? {
+        let start = Calendar.current.startOfDay(for: .now)
+        let predicate = HKQuery.predicateForSamples(withStart: start, end: .now)
+        let descriptor = HKStatisticsQueryDescriptor(
+            predicate: .quantitySample(type: HKQuantityType(.stepCount), predicate: predicate),
+            options: .cumulativeSum
+        )
+        guard let result = try? await descriptor.result(for: store),
+              let sum = result.sumQuantity() else { return nil }
+        return Int(sum.doubleValue(for: HKUnit.count()))
+    }
+
+    private func stepsDailyAverage() async -> Int? {
+        let calendar = Calendar.current
+        let anchor = calendar.startOfDay(for: .now)
+        guard let start = calendar.date(byAdding: .day, value: -30, to: anchor) else { return nil }
+        let predicate = HKQuery.predicateForSamples(withStart: start, end: anchor)
+        let descriptor = HKStatisticsCollectionQueryDescriptor(
+            predicate: .quantitySample(type: HKQuantityType(.stepCount), predicate: predicate),
+            options: .cumulativeSum,
+            anchorDate: anchor,
+            intervalComponents: DateComponents(day: 1)
+        )
+        guard let collection = try? await descriptor.result(for: store) else { return nil }
+        var totals: [Double] = []
+        collection.enumerateStatistics(from: start, to: anchor) { stats, _ in
+            if let sum = stats.sumQuantity()?.doubleValue(for: .count()), sum > 0 {
+                totals.append(sum)
+            }
+        }
+        guard !totals.isEmpty else { return nil }
+        return Int(totals.reduce(0, +) / Double(totals.count))
+    }
+
+    /// Sums asleep-stage samples from yesterday 6pm through today noon.
+    /// (Overlapping multi-source samples can double-count; fine for trends.)
+    private func sleepLastNight() async -> TimeInterval? {
+        let calendar = Calendar.current
+        let todayStart = calendar.startOfDay(for: .now)
+        guard let windowStart = calendar.date(byAdding: .hour, value: -6, to: todayStart),
+              let windowEnd = calendar.date(byAdding: .hour, value: 12, to: todayStart) else { return nil }
+
+        let predicate = HKQuery.predicateForSamples(withStart: windowStart, end: windowEnd)
+        let descriptor = HKSampleQueryDescriptor(
+            predicates: [.categorySample(type: HKCategoryType(.sleepAnalysis), predicate: predicate)],
+            sortDescriptors: [SortDescriptor(\.startDate)]
+        )
+        guard let samples = try? await descriptor.result(for: store), !samples.isEmpty else { return nil }
+
+        let asleepValues: Set<Int> = [
+            HKCategoryValueSleepAnalysis.asleepUnspecified.rawValue,
+            HKCategoryValueSleepAnalysis.asleepCore.rawValue,
+            HKCategoryValueSleepAnalysis.asleepDeep.rawValue,
+            HKCategoryValueSleepAnalysis.asleepREM.rawValue,
+        ]
+        let total = samples
+            .filter { asleepValues.contains($0.value) }
+            .reduce(0.0) { $0 + $1.endDate.timeIntervalSince($1.startDate) }
+        return total > 0 ? total : nil
+    }
+
+    private func workoutsThisWeek() async -> (count: Int, trainedToday: Bool) {
+        let calendar = Calendar.current
+        guard let weekStart = calendar.dateInterval(of: .weekOfYear, for: .now)?.start else { return (0, false) }
+        let predicate = HKQuery.predicateForSamples(withStart: weekStart, end: .now)
+        let descriptor = HKSampleQueryDescriptor(
+            predicates: [.workout(predicate)],
+            sortDescriptors: [SortDescriptor(\.startDate, order: .reverse)]
+        )
+        guard let workouts = try? await descriptor.result(for: store) else { return (0, false) }
+        let todayStart = calendar.startOfDay(for: .now)
+        let trainedToday = workouts.contains { $0.startDate >= todayStart }
+        return (workouts.count, trainedToday)
+    }
+
+    private func weightTrend(usesPounds: Bool) async -> (latest: Double?, changeTwoWeeks: Double?) {
+        let calendar = Calendar.current
+        guard let start = calendar.date(byAdding: .day, value: -60, to: .now) else { return (nil, nil) }
+        let predicate = HKQuery.predicateForSamples(withStart: start, end: .now)
+        let descriptor = HKSampleQueryDescriptor(
+            predicates: [.quantitySample(type: HKQuantityType(.bodyMass), predicate: predicate)],
+            sortDescriptors: [SortDescriptor(\.startDate, order: .reverse)]
+        )
+        guard let samples = try? await descriptor.result(for: store), let latest = samples.first else {
+            return (nil, nil)
+        }
+        let unit: HKUnit = usesPounds ? .pound() : .gramUnit(with: .kilo)
+        let latestValue = latest.quantity.doubleValue(for: unit)
+
+        // Nearest sample to 14 days before the latest reading
+        let target = latest.startDate.addingTimeInterval(-14 * 86_400)
+        let past = samples.min {
+            abs($0.startDate.timeIntervalSince(target)) < abs($1.startDate.timeIntervalSince(target))
+        }
+        var change: Double?
+        if let past, past !== latest,
+           abs(past.startDate.timeIntervalSince(target)) < 7 * 86_400 {
+            change = latestValue - past.quantity.doubleValue(for: unit)
+        }
+        return (latestValue, change)
+    }
+
+    private func latestRestingHeartRate() async -> Double? {
+        let descriptor = HKSampleQueryDescriptor(
+            predicates: [.quantitySample(type: HKQuantityType(.restingHeartRate))],
+            sortDescriptors: [SortDescriptor(\.startDate, order: .reverse)],
+            limit: 1
+        )
+        guard let samples = try? await descriptor.result(for: store),
+              let latest = samples.first else { return nil }
+        return latest.quantity.doubleValue(for: HKUnit.count().unitDivided(by: .minute()))
+    }
+}
