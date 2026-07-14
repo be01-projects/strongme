@@ -58,3 +58,6 @@ fastlane/test_output
 # Injected secrets / local config
 *.env
 .env.*
+
+# Local API key — never committed
+StrongMe/Secrets.plist

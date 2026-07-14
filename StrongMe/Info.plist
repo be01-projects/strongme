@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>UIAppFonts</key>
+	<array>
+		<string>Fraunces-400.ttf</string>
+		<string>Fraunces-500.ttf</string>
+		<string>Fraunces-600.ttf</string>
+		<string>Inter-400.ttf</string>
+		<string>Inter-500.ttf</string>
+		<string>Inter-600.ttf</string>
+		<string>Inter-700.ttf</string>
+	</array>
+	<key>NSHealthShareUsageDescription</key>
+	<string>StrongMe reads your steps, sleep, workouts, weight and resting heart rate so you never have to log them yourself.</string>
+	<key>NSHealthUpdateUsageDescription</key>
+	<string>When you say your weight out loud, StrongMe files it back to Health so everything stays in one place.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Talking is the fastest way to log — one sentence and it's filed.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Your speech is transcribed on-device so a spoken sentence can be logged as food, weight, or a reflection.</string>
+</dict>
+</plist>

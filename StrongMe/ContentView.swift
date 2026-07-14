@@ -2,23 +2,20 @@
 //  ContentView.swift
 //  StrongMe
 //
-//  Created by Sungjoon Steve Won on 7/12/26.
-//
 
+import SwiftData
 import SwiftUI
 
 struct ContentView: View {
     var body: some View {
-        VStack {
-            Image(systemName: "globe")
-                .imageScale(.large)
-                .foregroundStyle(.tint)
-            Text("Hello, world!")
-        }
-        .padding()
+        TodayView()
     }
 }
 
 #Preview {
     ContentView()
+        .environment(HealthKitService())
+        .environment(ToastCenter())
+        .modelContainer(for: [FoodEntry.self, UsualMeal.self, ReflectionEntry.self, FoodCorrection.self],
+                        inMemory: true)
 }
