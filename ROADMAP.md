@@ -21,6 +21,15 @@ Build order follows the spec's de-risk sequence.*
 - [x] Edit = reopen talk control prefilled, replace on confirm
 - [x] Model switch: everything on `claude-sonnet-5`
 
+## ✅ Milestone 2.5 — experience polish *(shipped 2026-07-14)*
+- [x] Chip rename/add re-estimates macros for *this* log (not just future parses)
+- [x] Add-a-chip for items the parse missed
+- [x] Auto-finish listening on a longer pause — speak and lower the phone
+- [x] Day rollover: queries + protein bar reset at midnight; Health refresh on foregrounding
+- [x] Daily insight regenerates after new logs (stamp-based cache) instead of going stale
+- [x] Voice-settable protein target ("set my protein target to 160")
+- [x] Auto-focused keyboard in typing mode; success haptic on log
+
 ## ⏳ Milestone 3 — logging without opening the app
 - [ ] App Intents foundation ("log my lunch", "log a reflection") — Siri + Shortcuts
 - [ ] Action Button support (hold → talk → parser)
@@ -35,7 +44,6 @@ Build order follows the spec's de-risk sequence.*
 
 ## Backlog (unscheduled)
 - [ ] Dark-mode palette pass (currently forced light)
-- [ ] Settable protein target (voice: "set my protein target to 160")
 - [ ] The single gentle daily prompt (max one, well-timed, easily off)
 - [ ] Persist coach conversations? (currently per-session by design — revisit)
 - [ ] Keychain-based API key entry (paste once, no file) — before any TestFlight

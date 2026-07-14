@@ -29,7 +29,28 @@ final class ToastCenter {
 
 // MARK: - Today
 
+/// Thin wrapper that owns "which day is today": rebuilds the content (and
+/// its day-anchored queries) at day rollover, and refreshes Health data
+/// whenever the app returns to the foreground.
 struct TodayView: View {
+    @Environment(\.scenePhase) private var scenePhase
+    @Environment(HealthKitService.self) private var health
+
+    @State private var dayStart = Calendar.current.startOfDay(for: .now)
+
+    var body: some View {
+        TodayContent(dayStart: dayStart)
+            .id(dayStart)
+            .onChange(of: scenePhase) { _, phase in
+                guard phase == .active else { return }
+                let today = Calendar.current.startOfDay(for: .now)
+                if today != dayStart { dayStart = today }
+                Task { await health.refresh() }
+            }
+    }
+}
+
+struct TodayContent: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(HealthKitService.self) private var health
     @Environment(ToastCenter.self) private var toast
@@ -42,16 +63,19 @@ struct TodayView: View {
 
     @AppStorage("proteinTargetGrams") private var proteinTarget = 150.0
     @AppStorage("firstLaunchDate") private var firstLaunchTimestamp = 0.0
-    // Claude-written daily read, cached per day; rule-based fills the gaps
+    // Claude-written daily read; the stamp tracks day + data state so the
+    // read regenerates after new logs instead of going stale
     @AppStorage("dailyInsightText") private var dailyInsightText = ""
-    @AppStorage("dailyInsightDay") private var dailyInsightDay = ""
+    @AppStorage("dailyInsightStamp") private var dailyInsightStamp = ""
 
     @State private var captureRequest: CaptureRequest?
     @State private var showCoach = false
     @State private var showHistory = false
 
-    init() {
-        let dayStart = Calendar.current.startOfDay(for: .now)
+    let dayStart: Date
+
+    init(dayStart: Date) {
+        self.dayStart = dayStart
         _todaysFood = Query(filter: #Predicate<FoodEntry> { $0.date >= dayStart },
                             sort: \.date, order: .reverse)
     }
@@ -114,21 +138,33 @@ struct TodayView: View {
         }
         .onChange(of: captureRequest) { _, newValue in
             if newValue == nil {
-                Task { await health.refresh() }
+                Task {
+                    await health.refresh()
+                    await refreshDailyInsight()
+                }
             }
+        }
+        .sensoryFeedback(.success, trigger: toast.message) { _, newValue in
+            newValue != nil
         }
     }
 
-    /// Generate the Claude daily read once per day, after Health data loads.
+    /// Day + data state — when either changes, the read regenerates.
+    private var insightStamp: String {
+        let day = Date.now.formatted(.iso8601.year().month().day())
+        let weight = Int(health.snapshot.latestWeight ?? 0)
+        return "\(day)|\(todaysFood.count)|\(weight)|\(Int(proteinTarget))"
+    }
+
     private func refreshDailyInsight() async {
-        let todayKey = Date.now.formatted(.iso8601.year().month().day())
-        guard dailyInsightDay != todayKey, ClaudeClient.isConfigured else { return }
+        guard dailyInsightStamp != insightStamp, ClaudeClient.isConfigured else { return }
+        let stamp = insightStamp
         let summary = await TrendSummary.build(
             context: modelContext, health: health, proteinTarget: proteinTarget
         )
         if let insight = await DailyInsight.generate(summary: summary) {
             dailyInsightText = insight
-            dailyInsightDay = todayKey
+            dailyInsightStamp = stamp
         }
     }
 
@@ -181,8 +217,10 @@ struct TodayView: View {
     // MARK: Insight
 
     private var insightText: String {
+        // Any cached read from today is better than the rule-based fallback,
+        // even mid-regeneration after a new log
         let todayKey = Date.now.formatted(.iso8601.year().month().day())
-        if dailyInsightDay == todayKey, !dailyInsightText.isEmpty {
+        if dailyInsightStamp.hasPrefix(todayKey), !dailyInsightText.isEmpty {
             return dailyInsightText
         }
         return InsightEngine.dailyRead(

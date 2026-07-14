@@ -4,6 +4,20 @@
 
 ---
 
+# Milestone 2.5 — experience polish
+
+Seven fixes that close the gap between "works" and "feels effortless", before moving to system entry points:
+
+1. **Chip fixes now fix this log.** Renaming a chip ("coffee" → "large oat latte") re-estimates its protein/calories via a tiny single-item Claude call (local table fallback), so the macros correct immediately — previously only *future* parses learned. The macro line shows "updating estimate…" while it resolves.
+2. **Add-a-chip** — a dashed ＋ chip in the confirm sheet for anything the parse missed; added items get the same async macro estimate.
+3. **Auto-finish on silence** — speak, pause ~1.8s, and the entry files itself (transcript-change timestamps from SFSpeech). The "Done" button remains as a manual override; "Type instead" still available.
+4. **Day rollover + freshness** — `TodayView` is now a thin wrapper owning `dayStart`; the content (and its day-anchored queries) rebuilds at midnight, and Health data refreshes every time the app returns to the foreground. Previously an overnight-resident app showed yesterday's protein.
+5. **Insight staleness** — the daily read's cache key is now a stamp of *day + meals logged + weight + target*, so logging a meal regenerates it (verified live: the read updated to cite "12g of protein logged today"). Any same-day cached read still shows while a new one generates.
+6. **Voice-set protein target** — "set my protein target to 160" is a new parser kind with its own confirm card; updates the bar and the coach's context. Works in the offline fallback too.
+7. **Feel** — typing mode auto-focuses the keyboard; logging fires a success haptic alongside the toast.
+
+---
+
 # Milestone 2 — the coach + calendar/history
 
 ## What's in this build
