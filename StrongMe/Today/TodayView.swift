@@ -42,9 +42,13 @@ struct TodayView: View {
 
     @AppStorage("proteinTargetGrams") private var proteinTarget = 150.0
     @AppStorage("firstLaunchDate") private var firstLaunchTimestamp = 0.0
+    // Claude-written daily read, cached per day; rule-based fills the gaps
+    @AppStorage("dailyInsightText") private var dailyInsightText = ""
+    @AppStorage("dailyInsightDay") private var dailyInsightDay = ""
 
-    @State private var captureMode: CaptureMode?
-    @State private var showCoachStub = false
+    @State private var captureRequest: CaptureRequest?
+    @State private var showCoach = false
+    @State private var showHistory = false
 
     init() {
         let dayStart = Calendar.current.startOfDay(for: .now)
@@ -77,8 +81,8 @@ struct TodayView: View {
             .scrollIndicators(.hidden)
 
             TalkDock(
-                onTalk: { captureMode = .voice },
-                onType: { captureMode = .typing(prompt: nil) }
+                onTalk: { captureRequest = .voice() },
+                onType: { captureRequest = .typing() }
             )
 
             if let message = toast.message {
@@ -88,21 +92,43 @@ struct TodayView: View {
             }
         }
         .background(Palette.app)
-        .sheet(item: $captureMode) { mode in
-            CaptureSheet(mode: mode)
+        .sheet(item: $captureRequest) { request in
+            CaptureSheet(request: request)
         }
-        .sheet(isPresented: $showCoachStub) {
-            CoachStubSheet(insight: insightText)
+        .sheet(isPresented: $showCoach) {
+            CoachSheet()
+        }
+        .sheet(isPresented: $showHistory) {
+            HistorySheet()
         }
         .task {
             if firstLaunchTimestamp == 0 { firstLaunchTimestamp = Date.now.timeIntervalSince1970 }
+            #if DEBUG
+            // Scripted screenshots / UI tests
+            if ProcessInfo.processInfo.arguments.contains("-open-coach") { showCoach = true }
+            if ProcessInfo.processInfo.arguments.contains("-open-history") { showHistory = true }
+            #endif
             await health.requestAuthorization()
             await health.refresh()
+            await refreshDailyInsight()
         }
-        .onChange(of: captureMode) { _, newValue in
+        .onChange(of: captureRequest) { _, newValue in
             if newValue == nil {
                 Task { await health.refresh() }
             }
+        }
+    }
+
+    /// Generate the Claude daily read once per day, after Health data loads.
+    private func refreshDailyInsight() async {
+        let todayKey = Date.now.formatted(.iso8601.year().month().day())
+        guard dailyInsightDay != todayKey, ClaudeClient.isConfigured else { return }
+        let summary = await TrendSummary.build(
+            context: modelContext, health: health, proteinTarget: proteinTarget
+        )
+        if let insight = await DailyInsight.generate(summary: summary) {
+            dailyInsightText = insight
+            dailyInsightDay = todayKey
         }
     }
 
@@ -121,7 +147,7 @@ struct TodayView: View {
             }
             Spacer()
             Button {
-                toast.show("History arrives with the next milestone")
+                showHistory = true
             } label: {
                 Image(systemName: "calendar")
                     .font(.system(size: 17, weight: .medium))
@@ -155,7 +181,11 @@ struct TodayView: View {
     // MARK: Insight
 
     private var insightText: String {
-        InsightEngine.dailyRead(
+        let todayKey = Date.now.formatted(.iso8601.year().month().day())
+        if dailyInsightDay == todayKey, !dailyInsightText.isEmpty {
+            return dailyInsightText
+        }
+        return InsightEngine.dailyRead(
             snapshot: health.snapshot,
             proteinToday: proteinToday,
             proteinTarget: proteinTarget,
@@ -165,7 +195,7 @@ struct TodayView: View {
 
     private var insightCard: some View {
         Button {
-            showCoachStub = true
+            showCoach = true
         } label: {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 7) {
@@ -256,7 +286,7 @@ struct TodayView: View {
     private var reflectionSection: some View {
         VStack(alignment: .leading, spacing: 11) {
             Button {
-                captureMode = .typing(prompt: "How are you feeling? What kind of day was it?")
+                captureRequest = .typing(prompt: "How are you feeling? What kind of day was it?")
             } label: {
                 HStack(spacing: 12) {
                     VStack(alignment: .leading, spacing: 4) {
@@ -336,54 +366,3 @@ struct ToastView: View {
     }
 }
 
-// MARK: - Coach stub (full coach ships next milestone)
-
-struct CoachStubSheet: View {
-    let insight: String
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Capsule()
-                .fill(Color(hex: 0xD6D5CD))
-                .frame(width: 38, height: 5)
-                .frame(maxWidth: .infinity)
-                .padding(.top, 10)
-                .padding(.bottom, 18)
-
-            HStack(spacing: 8) {
-                IndigoDot()
-                EyebrowLabel(text: "Your coach", color: Palette.indigo)
-            }
-
-            Text((try? AttributedString(markdown: insight)) ?? AttributedString(insight))
-                .font(AppFont.coach(19))
-                .foregroundStyle(Color(hex: 0x2A2F42))
-                .lineSpacing(6)
-                .padding(.top, 14)
-
-            Text("The interactive coach — “how am I doing?” and free-form questions answered from your real numbers — arrives in the next build. Only a summary of your trends will ever leave the device, and you'll see exactly what's sent.")
-                .font(AppFont.ui(13.5, .medium))
-                .foregroundStyle(Palette.muted)
-                .lineSpacing(3)
-                .padding(.top, 16)
-
-            Spacer()
-
-            Text("Your coach — not a doctor or dietitian. It defers on anything medical.")
-                .font(AppFont.ui(10.5, .medium))
-                .foregroundStyle(Color(hex: 0xA4A6AF))
-                .frame(maxWidth: .infinity)
-                .padding(.bottom, 8)
-
-            Button { dismiss() } label: {
-                Text("Okay").confirmButtonStyle()
-            }
-        }
-        .padding(.horizontal, 22)
-        .padding(.bottom, 24)
-        .presentationDetents([.medium])
-        .presentationBackground(Palette.app)
-        .presentationCornerRadius(30)
-    }
-}

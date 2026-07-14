@@ -10,18 +10,23 @@ import HealthKit
 import SwiftData
 import SwiftUI
 
-// MARK: - Entry point / mode
+// MARK: - Entry point / request
 
-enum CaptureMode: Identifiable, Equatable {
-    case voice
-    case typing(prompt: String?)
+/// Everything a capture needs: how it starts, which day it logs to, and —
+/// when editing from History — which entry it replaces on confirm.
+struct CaptureRequest: Identifiable, Equatable {
+    enum Mode: Equatable { case voice, typing }
 
-    var id: String {
-        switch self {
-        case .voice: "voice"
-        case .typing(let prompt): "typing-\(prompt ?? "")"
-        }
-    }
+    let id = UUID()
+    var mode: Mode
+    var prompt: String?
+    var prefill: String?
+    var targetDate: Date = .now
+    var replacingFoodID: PersistentIdentifier?
+    var replacingReflectionID: PersistentIdentifier?
+
+    static func voice() -> CaptureRequest { CaptureRequest(mode: .voice) }
+    static func typing(prompt: String? = nil) -> CaptureRequest { CaptureRequest(mode: .typing, prompt: prompt) }
 }
 
 // MARK: - Draft being confirmed
@@ -49,7 +54,7 @@ struct FoodDraft: Equatable {
 // MARK: - Sheet
 
 struct CaptureSheet: View {
-    let mode: CaptureMode
+    let request: CaptureRequest
 
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
@@ -59,6 +64,16 @@ struct CaptureSheet: View {
     @State private var speech = SpeechRecognizer()
     @State private var phase: Phase = .idle
     @State private var typedText = ""
+
+    /// Today logs at the actual moment; back-dated entries land at noon.
+    private var entryDate: Date {
+        if Calendar.current.isDateInToday(request.targetDate) { return .now }
+        let noon = Calendar.current.date(
+            bySettingHour: 12, minute: 0, second: 0,
+            of: request.targetDate
+        )
+        return noon ?? request.targetDate
+    }
 
     enum Phase: Equatable {
         case idle
@@ -125,7 +140,8 @@ struct CaptureSheet: View {
     // MARK: Flow
 
     private func begin() async {
-        switch mode {
+        if let prefill = request.prefill { typedText = prefill }
+        switch request.mode {
         case .voice:
             phase = .listening
             await speech.start()
@@ -174,7 +190,8 @@ struct CaptureSheet: View {
             phase = .confirmWeight(value: entry.weightValue, unit: unit, raw: rawText)
 
         case .reflection, .other:
-            let reflection = ReflectionEntry(text: rawText, tags: entry.reflectionTags)
+            deleteReplacedEntries()
+            let reflection = ReflectionEntry(date: entryDate, text: rawText, tags: entry.reflectionTags)
             modelContext.insert(reflection)
             phase = .reflectionSaved(text: rawText, tags: entry.reflectionTags)
         }
@@ -186,10 +203,11 @@ struct CaptureSheet: View {
             modelContext.insert(FoodCorrection(original: chip.originalName, corrected: chip.name))
         }
 
+        deleteReplacedEntries()
         let items = draft.chips.map {
             FoodItemRecord(name: $0.name, proteinGrams: $0.proteinGrams, calories: $0.calories)
         }
-        modelContext.insert(FoodEntry(mealLabel: draft.meal, items: items, rawText: draft.rawText))
+        modelContext.insert(FoodEntry(date: entryDate, mealLabel: draft.meal, items: items, rawText: draft.rawText))
         UsualLearner.record(items: items, meal: draft.meal, context: modelContext)
 
         toast.show("Logged · +\(Int(draft.proteinGrams.rounded()))g protein")
@@ -199,12 +217,29 @@ struct CaptureSheet: View {
     private func confirmWeight(value: Double, unit: String) {
         Task {
             do {
-                try await health.saveWeight(value: value, unit: unit == "kg" ? .gramUnit(with: .kilo) : .pound())
+                try await health.saveWeight(
+                    value: value,
+                    unit: unit == "kg" ? .gramUnit(with: .kilo) : .pound(),
+                    date: entryDate
+                )
                 toast.show("Weight logged · \(trimmed(value)) \(unit)")
                 dismiss()
             } catch {
                 phase = .notice("Couldn't save to Health. Check Health permissions and try again.")
             }
+        }
+    }
+
+    /// Editing from History re-logs through the same parse→confirm loop,
+    /// then removes the entry being replaced.
+    private func deleteReplacedEntries() {
+        if let foodID = request.replacingFoodID,
+           let entry = modelContext.model(for: foodID) as? FoodEntry {
+            modelContext.delete(entry)
+        }
+        if let reflectionID = request.replacingReflectionID,
+           let entry = modelContext.model(for: reflectionID) as? ReflectionEntry {
+            modelContext.delete(entry)
         }
     }
 
@@ -291,8 +326,7 @@ struct CaptureSheet: View {
     }
 
     private var typingPlaceholder: String {
-        if case .typing(let prompt) = mode, let prompt { return prompt }
-        return "food, your weight, or how your day went…"
+        request.prompt ?? "food, your weight, or how your day went…"
     }
 
     private func submitTyped() {

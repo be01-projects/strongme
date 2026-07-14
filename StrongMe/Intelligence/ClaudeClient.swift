@@ -3,9 +3,10 @@
 //  StrongMe
 //
 //  Minimal Messages API client (no Swift SDK exists, so raw HTTPS).
-//  Uses claude-fable-5 with structured outputs so every parse comes back
-//  as schema-valid JSON, plus the server-side fallback to claude-opus-4-8
-//  so a rare safety-classifier decline is re-served instead of failing.
+//  Runs everything on claude-sonnet-5 — near-Opus quality at a third of
+//  the cost, and snappier for the parse sheet. Structured outputs
+//  guarantee schema-valid JSON for the parser; the coach uses plain-text
+//  completions. One constant below to change models.
 //
 
 import Foundation
@@ -19,16 +20,15 @@ enum ClaudeError: Error, LocalizedError {
     var errorDescription: String? {
         switch self {
         case .missingAPIKey: "No API key configured"
-        case .httpError(let code, _): "The parsing service returned an error (\(code))"
-        case .refusal: "The parsing service declined this request"
-        case .emptyResponse: "The parsing service returned an empty response"
+        case .httpError(let code, _): "The service returned an error (\(code))"
+        case .refusal: "The service declined this request"
+        case .emptyResponse: "The service returned an empty response"
         }
     }
 }
 
 enum ClaudeClient {
-    static let model = "claude-fable-5"
-    static let fallbackModel = "claude-opus-4-8"
+    static let model = "claude-sonnet-5"
 
     /// Key lookup: scheme environment first (simulator dev), then a
     /// gitignored Secrets.plist in the bundle. Never hardcoded.
@@ -49,27 +49,47 @@ enum ClaudeClient {
     /// One structured-output completion. Returns the raw JSON text that the
     /// schema guarantees is valid.
     static func completeJSON(system: String, user: String, schema: [String: Any]) async throws -> Data {
-        guard let apiKey else { throw ClaudeError.missingAPIKey }
-
-        let body: [String: Any] = [
+        let text = try await send(body: [
             "model": model,
             "max_tokens": 2000,
-            "fallbacks": [["model": fallbackModel]],
             "output_config": [
                 "effort": "low",  // parsing is routine work; keep it fast
                 "format": ["type": "json_schema", "schema": schema],
             ],
             "system": system,
             "messages": [["role": "user", "content": user]],
-        ]
+        ])
+        guard let data = text.data(using: .utf8) else { throw ClaudeError.emptyResponse }
+        return data
+    }
+
+    /// Plain-text completion over a running conversation (the coach).
+    static func completeText(
+        system: String,
+        messages: [[String: Any]],
+        effort: String = "medium",
+        maxTokens: Int = 1500
+    ) async throws -> String {
+        try await send(body: [
+            "model": model,
+            "max_tokens": maxTokens,
+            "output_config": ["effort": effort],
+            "system": system,
+            "messages": messages,
+        ])
+    }
+
+    // MARK: - Transport
+
+    private static func send(body: [String: Any]) async throws -> String {
+        guard let apiKey else { throw ClaudeError.missingAPIKey }
 
         var request = URLRequest(url: URL(string: "https://api.anthropic.com/v1/messages")!)
         request.httpMethod = "POST"
-        request.timeoutInterval = 60
+        request.timeoutInterval = 120  // adaptive thinking can take a moment; give it room
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
         request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
-        request.setValue("server-side-fallback-2026-06-01", forHTTPHeaderField: "anthropic-beta")
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
         let (data, response) = try await URLSession.shared.data(for: request)
@@ -85,9 +105,9 @@ enum ClaudeClient {
         }
         guard let content = json["content"] as? [[String: Any]],
               let text = content.first(where: { $0["type"] as? String == "text" })?["text"] as? String,
-              let textData = text.data(using: .utf8) else {
+              !text.isEmpty else {
             throw ClaudeError.emptyResponse
         }
-        return textData
+        return text
     }
 }

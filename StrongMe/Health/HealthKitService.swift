@@ -87,12 +87,12 @@ final class HealthKitService {
 
     // MARK: - Writes
 
-    func saveWeight(value: Double, unit: HKUnit) async throws {
+    func saveWeight(value: Double, unit: HKUnit, date: Date = .now) async throws {
         let quantity = HKQuantity(unit: unit, doubleValue: value)
         let sample = HKQuantitySample(
             type: HKQuantityType(.bodyMass),
             quantity: quantity,
-            start: .now, end: .now
+            start: date, end: date
         )
         try await store.save(sample)
         await refresh()
@@ -200,6 +200,148 @@ final class HealthKitService {
             change = latestValue - past.quantity.doubleValue(for: unit)
         }
         return (latestValue, change)
+    }
+
+    // MARK: - Coach & history queries
+
+    /// Distinct days with a workout in the last `lastDays` days, oldest first.
+    func workoutDates(lastDays: Int) async -> [Date] {
+        let calendar = Calendar.current
+        guard let start = calendar.date(byAdding: .day, value: -lastDays, to: calendar.startOfDay(for: .now)) else { return [] }
+        let predicate = HKQuery.predicateForSamples(withStart: start, end: .now)
+        let descriptor = HKSampleQueryDescriptor(
+            predicates: [.workout(predicate)],
+            sortDescriptors: [SortDescriptor(\.startDate)]
+        )
+        guard let workouts = try? await descriptor.result(for: store) else { return [] }
+        var days: [Date] = []
+        for workout in workouts {
+            let day = calendar.startOfDay(for: workout.startDate)
+            if days.last != day { days.append(day) }
+        }
+        return days
+    }
+
+    /// Average nightly sleep across the last `lastDays` nights (nights with data only).
+    func sleepAverage(lastDays: Int) async -> TimeInterval? {
+        let calendar = Calendar.current
+        let todayStart = calendar.startOfDay(for: .now)
+        guard let start = calendar.date(byAdding: .day, value: -lastDays, to: todayStart),
+              let windowStart = calendar.date(byAdding: .hour, value: -6, to: start) else { return nil }
+        let predicate = HKQuery.predicateForSamples(withStart: windowStart, end: .now)
+        let descriptor = HKSampleQueryDescriptor(
+            predicates: [.categorySample(type: HKCategoryType(.sleepAnalysis), predicate: predicate)],
+            sortDescriptors: [SortDescriptor(\.startDate)]
+        )
+        guard let samples = try? await descriptor.result(for: store), !samples.isEmpty else { return nil }
+        let asleepValues: Set<Int> = [
+            HKCategoryValueSleepAnalysis.asleepUnspecified.rawValue,
+            HKCategoryValueSleepAnalysis.asleepCore.rawValue,
+            HKCategoryValueSleepAnalysis.asleepDeep.rawValue,
+            HKCategoryValueSleepAnalysis.asleepREM.rawValue,
+        ]
+        // Attribute each asleep sample to the night it belongs to (6pm cutoff)
+        var byNight: [Date: TimeInterval] = [:]
+        for sample in samples where asleepValues.contains(sample.value) {
+            let anchor = calendar.startOfDay(for: sample.startDate.addingTimeInterval(6 * 3600))
+            byNight[anchor, default: 0] += sample.endDate.timeIntervalSince(sample.startDate)
+        }
+        guard !byNight.isEmpty else { return nil }
+        return byNight.values.reduce(0, +) / Double(byNight.count)
+    }
+
+    struct WorkoutInfo: Identifiable {
+        let id = UUID()
+        let name: String
+        let minutes: Int
+        let start: Date
+    }
+
+    struct WeightReading: Identifiable {
+        let id = UUID()
+        let value: Double
+        let unitLabel: String
+        let date: Date
+    }
+
+    func workouts(on day: Date) async -> [WorkoutInfo] {
+        guard let interval = Calendar.current.dateInterval(of: .day, for: day) else { return [] }
+        let predicate = HKQuery.predicateForSamples(withStart: interval.start, end: interval.end)
+        let descriptor = HKSampleQueryDescriptor(
+            predicates: [.workout(predicate)],
+            sortDescriptors: [SortDescriptor(\.startDate)]
+        )
+        guard let workouts = try? await descriptor.result(for: store) else { return [] }
+        return workouts.map {
+            WorkoutInfo(
+                name: Self.workoutName($0.workoutActivityType),
+                minutes: Int($0.duration / 60),
+                start: $0.startDate
+            )
+        }
+    }
+
+    func weightReadings(on day: Date) async -> [WeightReading] {
+        guard let interval = Calendar.current.dateInterval(of: .day, for: day) else { return [] }
+        let usesPounds = snapshot.usesPounds
+        let unit: HKUnit = usesPounds ? .pound() : .gramUnit(with: .kilo)
+        let predicate = HKQuery.predicateForSamples(withStart: interval.start, end: interval.end)
+        let descriptor = HKSampleQueryDescriptor(
+            predicates: [.quantitySample(type: HKQuantityType(.bodyMass), predicate: predicate)],
+            sortDescriptors: [SortDescriptor(\.startDate)]
+        )
+        guard let samples = try? await descriptor.result(for: store) else { return [] }
+        return samples.map {
+            WeightReading(
+                value: $0.quantity.doubleValue(for: unit),
+                unitLabel: usesPounds ? "lb" : "kg",
+                date: $0.startDate
+            )
+        }
+    }
+
+    /// Day numbers within `month` that have a workout or weight reading —
+    /// used for the calm calendar markers.
+    func healthActivityDays(in month: DateInterval) async -> Set<Int> {
+        let calendar = Calendar.current
+        var days = Set<Int>()
+
+        let predicate = HKQuery.predicateForSamples(withStart: month.start, end: month.end)
+        let workoutDescriptor = HKSampleQueryDescriptor(
+            predicates: [.workout(predicate)],
+            sortDescriptors: []
+        )
+        if let workouts = try? await workoutDescriptor.result(for: store) {
+            for workout in workouts { days.insert(calendar.component(.day, from: workout.startDate)) }
+        }
+
+        let weightDescriptor = HKSampleQueryDescriptor(
+            predicates: [.quantitySample(type: HKQuantityType(.bodyMass), predicate: predicate)],
+            sortDescriptors: []
+        )
+        if let samples = try? await weightDescriptor.result(for: store) {
+            for sample in samples { days.insert(calendar.component(.day, from: sample.startDate)) }
+        }
+        return days
+    }
+
+    private static func workoutName(_ type: HKWorkoutActivityType) -> String {
+        switch type {
+        case .traditionalStrengthTraining, .functionalStrengthTraining: "Strength"
+        case .running: "Run"
+        case .walking: "Walk"
+        case .cycling: "Ride"
+        case .highIntensityIntervalTraining: "HIIT"
+        case .yoga: "Yoga"
+        case .swimming: "Swim"
+        case .rowing: "Row"
+        case .hiking: "Hike"
+        case .coreTraining: "Core"
+        case .pilates: "Pilates"
+        case .elliptical: "Elliptical"
+        case .stairClimbing: "Stairs"
+        default: "Workout"
+        }
     }
 
     private func latestRestingHeartRate() async -> Double? {
