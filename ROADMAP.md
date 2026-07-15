@@ -42,6 +42,11 @@ Build order follows the spec's de-risk sequence.*
 - [x] App-written weigh-ins deletable from History (Health-owned ones stay read-only)
 - [x] Health-permission hint in empty states
 
+## ✅ Post-2.5 button-up batch *(2026-07-15)*
+- [x] Indigo accent color, oat launch screen (no white flash)
+- [x] Dynamic Type via relativeTo anchors; VoiceOver labels on icon buttons
+- [x] Long-press to remove a usual; correction memory dedup
+
 ## ⏳ Milestone 3 — logging without opening the app
 - [ ] App Intents foundation ("log my lunch", "log a reflection") — Siri + Shortcuts
 - [ ] Action Button support (hold → talk → parser)

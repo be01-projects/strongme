@@ -237,10 +237,20 @@ struct CaptureSheet: View {
         // Remember identity fixes so the parser stops guessing wrong next
         // time. Quantity-only edits ("2 eggs" → "3 eggs") aren't habits —
         // recording them would teach the parser to inflate future portions.
+        // Repeat fixes refresh the existing correction instead of stacking
+        // duplicates (the prompt only carries the 10 most recent).
+        let existingCorrections = (try? modelContext.fetch(FetchDescriptor<FoodCorrection>())) ?? []
         for chip in draft.chips
         where chip.name != chip.originalName
             && !isQuantityOnlyChange(chip.originalName, chip.name) {
-            modelContext.insert(FoodCorrection(original: chip.originalName, corrected: chip.name))
+            if let existing = existingCorrections.first(where: {
+                $0.original.caseInsensitiveCompare(chip.originalName) == .orderedSame
+                    && $0.corrected.caseInsensitiveCompare(chip.name) == .orderedSame
+            }) {
+                existing.date = .now
+            } else {
+                modelContext.insert(FoodCorrection(original: chip.originalName, corrected: chip.name))
+            }
         }
 
         deleteReplacedEntries()
@@ -727,6 +737,7 @@ private struct FoodConfirmView: View {
                             .background(Circle().fill(Color(hex: 0xEFEDE7)))
                     }
                     .buttonStyle(.plain)
+                    .accessibilityLabel("Remove \(chip.name)")
                 }
                 .padding(.horizontal, 13)
                 .padding(.vertical, 9)

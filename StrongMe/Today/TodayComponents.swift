@@ -256,6 +256,7 @@ struct TalkDock: View {
                     .cardBackground(cornerRadius: 20)
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("Type instead of talking")
         }
         .padding(.horizontal, 20)
         .padding(.top, 14)

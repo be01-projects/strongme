@@ -261,6 +261,7 @@ struct CoachSheet: View {
                         .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Palette.confirmGradient))
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel("Send question")
                 .disabled(!session.isLive || question.trimmingCharacters(in: .whitespaces).isEmpty)
             }
         }

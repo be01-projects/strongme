@@ -91,6 +91,7 @@ struct HistorySheet: View {
                     .frame(width: 28, height: 28)
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("Previous month")
 
             Text(monthAnchor.formatted(.dateTime.month(.wide).year()))
                 .font(AppFont.coach(17))
@@ -105,6 +106,7 @@ struct HistorySheet: View {
                     .frame(width: 28, height: 28)
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("Next month")
             .disabled(!canGoForward)
         }
     }
@@ -355,6 +357,7 @@ struct DayDetailSection: View {
                         .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(Palette.hairline))
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel("Delete weight reading")
             }
         }
         .padding(.horizontal, 14)
@@ -461,6 +464,7 @@ struct DayDetailSection: View {
                     .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(Palette.hairline))
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("Edit entry")
             Button(action: delete) {
                 Image(systemName: "trash")
                     .font(.system(size: 12, weight: .medium))
@@ -470,6 +474,7 @@ struct DayDetailSection: View {
                     .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(Palette.hairline))
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("Delete entry")
         }
     }
 

@@ -329,6 +329,15 @@ struct TodayContent: View {
                             .cardBackground(cornerRadius: 15)
                         }
                         .buttonStyle(.plain)
+                        .contextMenu {
+                            // One-off meals shouldn't squat in prime real estate
+                            Button(role: .destructive) {
+                                modelContext.delete(usual)
+                                toast.show("Removed from usuals")
+                            } label: {
+                                Label("Remove from usuals", systemImage: "trash")
+                            }
+                        }
                     }
                 }
                 .padding(.vertical, 4)

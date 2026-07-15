@@ -4,6 +4,17 @@
 
 ---
 
+# Post-2.5 — button-up batch
+
+1. **AccentColor → indigo** — alerts, menus, and selection chrome no longer flash iOS blue.
+2. **Launch screen → oat** — kills the white blink at cold start (`LaunchBackground` color asset + `UILaunchScreen` dict).
+3. **Dynamic Type works** — every `AppFont` size is anchored to the nearest system text style via `relativeTo:`; verified at XXXL (layout holds, minor label wrapping at extreme sizes only).
+4. **VoiceOver labels** on all icon-only buttons (chip ×, edit/delete, keyboard toggle, month chevrons, coach send).
+5. **Long-press a usual chip → "Remove from usuals"** — one-off meals can't squat in the row.
+6. **Correction dedup** — repeat fixes refresh the existing correction's date instead of stacking duplicates in the 10-slot prompt window.
+
+---
+
 # Post-2.5 — forgiveness batch
 
 1. **Undo in the toast.** Every log and delete now carries a 4.5-second Undo: one-tap usuals, food/weight/target confirms, and History deletions (food, reflections, and app-written weigh-ins re-insert on undo). Forgiveness is the design brief; this is its cheapest expression.
