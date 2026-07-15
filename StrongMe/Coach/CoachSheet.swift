@@ -66,6 +66,7 @@ struct CoachSheet: View {
             footer
         }
         .presentationDetents([.large])
+        .presentationDragIndicator(.hidden)
         .presentationBackground(Palette.app)
         .presentationCornerRadius(30)
         .task {

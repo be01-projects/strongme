@@ -111,6 +111,7 @@ struct CaptureSheet: View {
             .scrollBounceBehavior(.basedOnSize)
         }
         .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.hidden)
         .presentationBackground(Palette.app)
         .presentationCornerRadius(30)
         .task { await begin() }
@@ -233,8 +234,12 @@ struct CaptureSheet: View {
     }
 
     private func confirmFood(_ draft: FoodDraft) {
-        // Remember edits so the parser stops guessing wrong next time
-        for chip in draft.chips where chip.name != chip.originalName {
+        // Remember identity fixes so the parser stops guessing wrong next
+        // time. Quantity-only edits ("2 eggs" → "3 eggs") aren't habits —
+        // recording them would teach the parser to inflate future portions.
+        for chip in draft.chips
+        where chip.name != chip.originalName
+            && !isQuantityOnlyChange(chip.originalName, chip.name) {
             modelContext.insert(FoodCorrection(original: chip.originalName, corrected: chip.name))
         }
 
@@ -263,6 +268,20 @@ struct CaptureSheet: View {
                 phase = .notice("Couldn't save to Health. Check Health permissions and try again.")
             }
         }
+    }
+
+    /// "2 eggs" → "3 eggs" is the same food; "coffee" → "oat latte" isn't.
+    private func isQuantityOnlyChange(_ before: String, _ after: String) -> Bool {
+        func core(_ text: String) -> String {
+            text.lowercased()
+                .replacingOccurrences(of: #"[\d/.,½¼¾]+"#, with: "", options: .regularExpression)
+                .replacingOccurrences(
+                    of: #"\b(a|an|of|x|cups?|glasses?|slices?|pieces?|servings?|bowls?|halves|half|quarter|large|small|big)\b"#,
+                    with: "", options: .regularExpression
+                )
+                .replacingOccurrences(of: " ", with: "")
+        }
+        return core(before) == core(after)
     }
 
     /// Editing from History re-logs through the same parse→confirm loop,

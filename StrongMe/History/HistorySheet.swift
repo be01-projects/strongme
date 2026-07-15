@@ -71,6 +71,7 @@ struct HistorySheet: View {
             }
         }
         .presentationDetents([.large])
+        .presentationDragIndicator(.hidden)
         .presentationBackground(Palette.app)
         .presentationCornerRadius(30)
         .task(id: monthAnchor) { await loadMarkers() }

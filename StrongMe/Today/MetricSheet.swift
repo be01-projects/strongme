@@ -100,6 +100,7 @@ struct MetricSheet: View {
             .padding(.bottom, 20)
         }
         .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.hidden)
         .presentationBackground(Palette.app)
         .presentationCornerRadius(30)
         .task { await load() }

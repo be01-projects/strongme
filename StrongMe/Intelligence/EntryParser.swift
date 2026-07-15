@@ -108,6 +108,9 @@ enum EntryParser {
         Food rules:
         - Split into individual items. Estimate rough calories and protein for \
         typical portions — trends over precision, protein matters most.
+        - Keep quantities in the item name — "2 eggs", "2 cups of coffee", \
+        "half a burrito" — never a bare "eggs" when a quantity was said. \
+        The macros must reflect that quantity.
         - Round protein to whole grams, calories to the nearest 10.
         - Infer the meal from wording or plausibility; use "unknown" if unclear.
 
