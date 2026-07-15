@@ -30,6 +30,11 @@ Build order follows the spec's de-risk sequence.*
 - [x] Voice-settable protein target ("set my protein target to 160")
 - [x] Auto-focused keyboard in typing mode; success haptic on log
 
+## ✅ Post-2.5 dead-end pass *(2026-07-15, dogfood feedback)*
+- [x] History opens on today — day detail inline below the grid, not a nested sheet
+- [x] Reflections on Today tappable to edit; protein card opens today's entries
+- [x] Stat cards open a 2-week metric history (bars/rows) with ask-coach one tap deeper
+
 ## ⏳ Milestone 3 — logging without opening the app
 - [ ] App Intents foundation ("log my lunch", "log a reflection") — Siri + Shortcuts
 - [ ] Action Button support (hold → talk → parser)

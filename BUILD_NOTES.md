@@ -4,6 +4,16 @@
 
 ---
 
+# Post-2.5 — dead-end pass (dogfood feedback)
+
+Three fixes from first real use: things you could see but not touch.
+
+1. **History opens on today.** The day detail moved from a nested sheet to an inline section below the month grid, pre-selected to today — open the calendar and today's entries (or its honest empty state) are already there. Tapping another day swaps the list; selected day gets an indigo outline.
+2. **Everything logged is now reachable for editing.** Recent reflections on Today are tappable (reopens the talk control prefilled, replaces on confirm — same as History rows, now with a pencil affordance), and the protein card opens History-on-today where meals are edited/deleted. Synced Health rows (workouts, watch/scale weights) stay read-only — Health owns them.
+3. **Stat cards are doors, not dead pixels.** Tapping Steps / Sleep / Training / Weight opens that metric's **last two weeks** — calm bars for steps and sleep, a workout list for training, readings with deltas for weight (`MetricSheet.swift`). Direction over decimal points, never a raw table. "Ask your coach →" sits at the bottom and opens the coach with a tailored question auto-asked — history first, intelligence one tap deeper. Debug arg: `-open-metric-steps|sleep|training|weight`.
+
+---
+
 # Milestone 2.5 — experience polish
 
 Seven fixes that close the gap between "works" and "feels effortless", before moving to system entry points:
@@ -34,7 +44,12 @@ Priority-ordered: coach-not-clinician (defers on medical) → cite real figures,
 
 ## Model choice (updated)
 
-Everything now runs on **`claude-sonnet-5`** — near-Opus quality on this kind of work at a third of the cost ($3/$15 vs $10/$50 per MTok), and snappier for the parse sheet. The original `claude-fable-5` + Opus-fallback setup from milestone 1 was swapped out; the Fable-specific `fallbacks` parameter and beta header went with it. Model is a single constant in `ClaudeClient.swift` if you want to move the coach back up-tier later.
+Two tiers, two constants in `ClaudeClient.swift`:
+
+- **`claude-haiku-4-5`** (`parseModel`) — entry parsing and chip macro estimates. Routine structured extraction; $1/$5 per MTok and the fastest tier, which is exactly what the parse sheet wants. Haiku doesn't take the `effort` parameter, so the parse path sends only the JSON-schema `output_config`. Because routing (including distress) now lives on a small model, the conservative on-device distress screen runs as a **backstop over every Claude parse** — if it sees clear signals, the care response wins regardless of the model's routing.
+- **`claude-sonnet-5`** (`model`) — the coach and the daily insight, the product's voice.
+
+History: milestone 1 shipped on `claude-fable-5` + Opus fallback (Fable-specific `fallbacks` param and beta header since removed) → all-Sonnet in milestone 2 → this split.
 
 ## Milestone 2 choices
 

@@ -66,7 +66,13 @@ enum EntryParser {
                     user: text,
                     schema: schema
                 )
-                let entry = try JSONDecoder().decode(ParsedEntry.self, from: data)
+                var entry = try JSONDecoder().decode(ParsedEntry.self, from: data)
+                // Belt and suspenders on the one guardrail that can't miss:
+                // if the on-device screen sees clear distress signals, the
+                // care response wins regardless of the model's routing.
+                if entry.kind != .distress, LocalFallbackParser.containsDistressSignals(text) {
+                    entry.kind = .distress
+                }
                 return (entry, .claude)
             } catch {
                 // Network/API trouble: degrade to the local guess rather than
@@ -187,15 +193,20 @@ enum EntryParser {
 /// unreachable; the UI labels the result as a rough on-device guess.
 enum LocalFallbackParser {
 
+    /// Deliberately conservative — catches only the clearest signals so the
+    /// app never replies "logged!" to them. Runs as a backstop over the
+    /// Claude parse too, since routing lives on a small model.
+    static func containsDistressSignals(_ raw: String) -> Bool {
+        let text = raw.lowercased()
+        let signals = ["kill myself", "end it all", "want to die", "hurt myself",
+                       "no point in", "can't go on", "suicid", "hopeless", "worthless"]
+        return signals.contains(where: text.contains)
+    }
+
     static func parse(_ raw: String) -> ParsedEntry {
         let text = raw.lowercased()
 
-        // Distress screening is deliberately conservative here — the real
-        // judgment lives in the Claude parse. This catches only the clearest
-        // signals so the app never replies "logged!" to them.
-        let distressSignals = ["kill myself", "end it all", "want to die", "hurt myself",
-                               "no point in", "can't go on", "suicid", "hopeless", "worthless"]
-        if distressSignals.contains(where: text.contains) {
+        if containsDistressSignals(text) {
             return ParsedEntry(kind: .distress, meal: "unknown", items: [],
                                weightValue: 0, weightUnit: "unknown",
                                reflectionTags: [], targetProteinG: 0, summary: "")

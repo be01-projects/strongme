@@ -4,7 +4,8 @@
 //
 //  Correction and review, not a completion scoreboard. Days with entries
 //  get a calm dot; empty days look neutral and are still tappable so
-//  anything can be back-dated. Fixing a bad parse is the whole point.
+//  anything can be back-dated. Opens with today's entries already shown —
+//  the day detail lives inline below the grid.
 //
 
 import SwiftData
@@ -16,7 +17,7 @@ struct HistorySheet: View {
 
     @State private var monthAnchor: Date = Calendar.current.dateInterval(of: .month, for: .now)?.start ?? .now
     @State private var markedDays: Set<Int> = []
-    @State private var selectedDay: Date?
+    @State private var selectedDay: Date = Calendar.current.startOfDay(for: .now)
 
     private var calendar: Calendar { Calendar.current }
 
@@ -53,7 +54,17 @@ struct HistorySheet: View {
                             .foregroundStyle(Palette.muted)
                             .lineSpacing(3)
                     }
-                    .padding(.top, 18)
+                    .padding(.top, 14)
+
+                    Rectangle()
+                        .fill(Palette.hairline)
+                        .frame(height: 1)
+                        .padding(.vertical, 18)
+
+                    DayDetailSection(day: selectedDay) {
+                        Task { await loadMarkers() }
+                    }
+                    .id(selectedDay)
                 }
                 .padding(.horizontal, 22)
                 .padding(.bottom, 24)
@@ -63,11 +74,6 @@ struct HistorySheet: View {
         .presentationBackground(Palette.app)
         .presentationCornerRadius(30)
         .task(id: monthAnchor) { await loadMarkers() }
-        .sheet(item: $selectedDay) { day in
-            DayDetailSheet(day: day) {
-                Task { await loadMarkers() }
-            }
-        }
     }
 
     // MARK: Month navigation
@@ -139,10 +145,11 @@ struct HistorySheet: View {
                 let date = calendar.date(byAdding: .day, value: dayNumber - 1, to: monthAnchor)!
                 let isFuture = date > today
                 let isToday = calendar.isDate(date, inSameDayAs: today)
+                let isSelected = calendar.isDate(date, inSameDayAs: selectedDay)
                 let hasEntries = markedDays.contains(dayNumber)
 
                 Button {
-                    selectedDay = date
+                    selectedDay = calendar.startOfDay(for: date)
                 } label: {
                     VStack(spacing: 3) {
                         Text("\(dayNumber)")
@@ -156,7 +163,7 @@ struct HistorySheet: View {
                         Circle()
                             .fill(isToday ? .white.opacity(0.9) : Palette.indigo)
                             .frame(width: 5, height: 5)
-                            .opacity(hasEntries || (isToday && hasEntries) ? 1 : 0)
+                            .opacity(hasEntries ? 1 : 0)
                     }
                     .frame(maxWidth: .infinity)
                     .frame(height: 44)
@@ -168,7 +175,12 @@ struct HistorySheet: View {
                     )
                     .overlay(
                         RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .strokeBorder(hasEntries && !isToday ? Palette.hairline : .clear)
+                            .strokeBorder(
+                                isSelected && !isToday ? Palette.indigo
+                                : hasEntries && !isToday ? Palette.hairline
+                                : .clear,
+                                lineWidth: isSelected && !isToday ? 1.5 : 1
+                            )
                     )
                 }
                 .buttonStyle(.plain)
@@ -201,13 +213,9 @@ struct HistorySheet: View {
     }
 }
 
-extension Date: @retroactive Identifiable {
-    public var id: TimeInterval { timeIntervalSince1970 }
-}
+// MARK: - Day detail (inline)
 
-// MARK: - Day detail
-
-struct DayDetailSheet: View {
+struct DayDetailSection: View {
     let day: Date
     var onChange: () -> Void = {}
 
@@ -222,44 +230,31 @@ struct DayDetailSheet: View {
     @State private var captureRequest: CaptureRequest?
     @State private var loaded = false
 
-    var body: some View {
-        VStack(spacing: 0) {
-            Capsule()
-                .fill(Color(hex: 0xD6D5CD))
-                .frame(width: 38, height: 5)
-                .padding(.top, 10)
-                .padding(.bottom, 16)
+    private var isToday: Bool { Calendar.current.isDateInToday(day) }
 
-            Text(day.formatted(.dateTime.weekday(.wide).month(.wide).day()))
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(isToday ? "Today" : day.formatted(.dateTime.weekday(.wide).month(.wide).day()))
                 .font(AppFont.coach(20))
                 .foregroundStyle(Color(hex: 0x2A2F42))
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 22)
 
-            ScrollView {
-                VStack(spacing: 10) {
-                    if loaded && isEmpty {
-                        emptyState
-                    } else {
-                        ForEach(weights) { reading in
-                            recordRow(icon: "⚖", title: "Weight",
-                                      subtitle: "\(String(format: "%.1f", reading.value)) \(reading.unitLabel) · synced")
-                        }
-                        ForEach(workouts) { workout in
-                            recordRow(icon: "🏋", title: workout.name,
-                                      subtitle: "\(workout.minutes) min · synced")
-                        }
-                        ForEach(foods) { entry in
-                            foodRow(entry)
-                        }
-                        ForEach(reflections) { entry in
-                            reflectionRow(entry)
-                        }
-                    }
+            if loaded && isEmpty {
+                emptyState
+            } else {
+                ForEach(weights) { reading in
+                    recordRow(icon: "⚖", title: "Weight",
+                              subtitle: "\(String(format: "%.1f", reading.value)) \(reading.unitLabel) · synced")
                 }
-                .padding(.horizontal, 22)
-                .padding(.top, 16)
-                .padding(.bottom, 12)
+                ForEach(workouts) { workout in
+                    recordRow(icon: "🏋", title: workout.name,
+                              subtitle: "\(workout.minutes) min · synced")
+                }
+                ForEach(foods) { entry in
+                    foodRow(entry)
+                }
+                ForEach(reflections) { entry in
+                    reflectionRow(entry)
+                }
             }
 
             Button {
@@ -267,12 +262,8 @@ struct DayDetailSheet: View {
             } label: {
                 Text("＋ Add an entry").confirmButtonStyle()
             }
-            .padding(.horizontal, 22)
-            .padding(.bottom, 20)
+            .padding(.top, 4)
         }
-        .presentationDetents([.medium, .large])
-        .presentationBackground(Palette.app)
-        .presentationCornerRadius(30)
         .task { await load() }
         .sheet(item: $captureRequest) { request in
             CaptureSheet(request: request)
@@ -290,13 +281,16 @@ struct DayDetailSheet: View {
     private var emptyState: some View {
         VStack(spacing: 10) {
             Text("🌤").font(.system(size: 28)).opacity(0.55)
-            Text("Nothing logged this day.\nAdd something whenever you like — no pressure.")
+            Text(isToday
+                 ? "Nothing logged yet today.\nSay a meal, a weight, or how it's going."
+                 : "Nothing logged this day.\nAdd something whenever you like — no pressure.")
                 .font(AppFont.coach(16))
                 .foregroundStyle(Color(hex: 0x565B6B))
                 .multilineTextAlignment(.center)
                 .lineSpacing(4)
         }
-        .padding(.vertical, 32)
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 20)
     }
 
     // MARK: Rows

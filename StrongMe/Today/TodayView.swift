@@ -71,6 +71,7 @@ struct TodayContent: View {
     @State private var captureRequest: CaptureRequest?
     @State private var showCoach = false
     @State private var showHistory = false
+    @State private var openMetric: Metric?
 
     let dayStart: Date
 
@@ -89,10 +90,17 @@ struct TodayContent: View {
                     header
                     insightCard
                         .padding(.top, 20)
-                    StatGrid(snapshot: health.snapshot)
-                        .padding(.top, 16)
-                    ProteinCard(proteinToday: proteinToday, target: proteinTarget)
-                        .padding(.top, 11)
+                    StatGrid(snapshot: health.snapshot) { metric in
+                        openMetric = metric
+                    }
+                    .padding(.top, 16)
+                    Button {
+                        showHistory = true  // opens on today's entries — edit from there
+                    } label: {
+                        ProteinCard(proteinToday: proteinToday, target: proteinTarget)
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.top, 11)
                     usualRow
                         .padding(.top, 22)
                     reflectionSection
@@ -125,12 +133,19 @@ struct TodayContent: View {
         .sheet(isPresented: $showHistory) {
             HistorySheet()
         }
+        .sheet(item: $openMetric) { metric in
+            MetricSheet(metric: metric)
+        }
         .task {
             if firstLaunchTimestamp == 0 { firstLaunchTimestamp = Date.now.timeIntervalSince1970 }
             #if DEBUG
             // Scripted screenshots / UI tests
             if ProcessInfo.processInfo.arguments.contains("-open-coach") { showCoach = true }
             if ProcessInfo.processInfo.arguments.contains("-open-history") { showHistory = true }
+            if let metricArg = ProcessInfo.processInfo.arguments.first(where: { $0.hasPrefix("-open-metric-") }),
+               let metric = Metric(rawValue: String(metricArg.dropFirst("-open-metric-".count))) {
+                openMetric = metric
+            }
             #endif
             await health.requestAuthorization()
             await health.refresh()
@@ -350,22 +365,37 @@ struct TodayContent: View {
             .buttonStyle(.plain)
 
             ForEach(reflections.prefix(2)) { entry in
-                HStack(alignment: .firstTextBaseline, spacing: 11) {
-                    Text(relativeDay(entry.date))
-                        .font(AppFont.ui(10.5, .bold))
-                        .kerning(0.4)
-                        .foregroundStyle(Palette.muted)
-                        .frame(minWidth: 56, alignment: .leading)
-                    Text("“\(entry.text)”")
-                        .font(AppFont.coach(13.5))
-                        .italic()
-                        .foregroundStyle(Color(hex: 0x3A3F52))
-                        .lineSpacing(2)
+                Button {
+                    captureRequest = CaptureRequest(
+                        mode: .typing,
+                        prefill: entry.text,
+                        targetDate: entry.date,
+                        replacingReflectionID: entry.persistentModelID
+                    )
+                } label: {
+                    HStack(alignment: .firstTextBaseline, spacing: 11) {
+                        Text(relativeDay(entry.date))
+                            .font(AppFont.ui(10.5, .bold))
+                            .kerning(0.4)
+                            .foregroundStyle(Palette.muted)
+                            .frame(minWidth: 56, alignment: .leading)
+                        Text("“\(entry.text)”")
+                            .font(AppFont.coach(13.5))
+                            .italic()
+                            .foregroundStyle(Color(hex: 0x3A3F52))
+                            .lineSpacing(2)
+                            .multilineTextAlignment(.leading)
+                        Spacer(minLength: 0)
+                        Image(systemName: "pencil")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(Palette.muted.opacity(0.6))
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 11)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .cardBackground(cornerRadius: 14)
                 }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 11)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .cardBackground(cornerRadius: 14)
+                .buttonStyle(.plain)
             }
         }
     }

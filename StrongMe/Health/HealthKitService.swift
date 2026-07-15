@@ -222,18 +222,18 @@ final class HealthKitService {
         return days
     }
 
-    /// Average nightly sleep across the last `lastDays` nights (nights with data only).
-    func sleepAverage(lastDays: Int) async -> TimeInterval? {
+    /// Nightly sleep totals for the last `lastNights` nights, oldest first.
+    func nightlySleep(lastNights: Int) async -> [(night: Date, duration: TimeInterval)] {
         let calendar = Calendar.current
         let todayStart = calendar.startOfDay(for: .now)
-        guard let start = calendar.date(byAdding: .day, value: -lastDays, to: todayStart),
-              let windowStart = calendar.date(byAdding: .hour, value: -6, to: start) else { return nil }
+        guard let start = calendar.date(byAdding: .day, value: -lastNights, to: todayStart),
+              let windowStart = calendar.date(byAdding: .hour, value: -6, to: start) else { return [] }
         let predicate = HKQuery.predicateForSamples(withStart: windowStart, end: .now)
         let descriptor = HKSampleQueryDescriptor(
             predicates: [.categorySample(type: HKCategoryType(.sleepAnalysis), predicate: predicate)],
             sortDescriptors: [SortDescriptor(\.startDate)]
         )
-        guard let samples = try? await descriptor.result(for: store), !samples.isEmpty else { return nil }
+        guard let samples = try? await descriptor.result(for: store), !samples.isEmpty else { return [] }
         let asleepValues: Set<Int> = [
             HKCategoryValueSleepAnalysis.asleepUnspecified.rawValue,
             HKCategoryValueSleepAnalysis.asleepCore.rawValue,
@@ -246,8 +246,76 @@ final class HealthKitService {
             let anchor = calendar.startOfDay(for: sample.startDate.addingTimeInterval(6 * 3600))
             byNight[anchor, default: 0] += sample.endDate.timeIntervalSince(sample.startDate)
         }
-        guard !byNight.isEmpty else { return nil }
-        return byNight.values.reduce(0, +) / Double(byNight.count)
+        return byNight.keys.sorted().map { ($0, byNight[$0]!) }
+    }
+
+    /// Average nightly sleep across the last `lastDays` nights (nights with data only).
+    func sleepAverage(lastDays: Int) async -> TimeInterval? {
+        let nights = await nightlySleep(lastNights: lastDays)
+        guard !nights.isEmpty else { return nil }
+        return nights.map(\.duration).reduce(0, +) / Double(nights.count)
+    }
+
+    /// Daily step totals for the last `lastDays` days (days with data only), oldest first.
+    func dailySteps(lastDays: Int) async -> [(day: Date, steps: Int)] {
+        let calendar = Calendar.current
+        let anchor = calendar.startOfDay(for: .now)
+        guard let start = calendar.date(byAdding: .day, value: -lastDays, to: anchor) else { return [] }
+        let predicate = HKQuery.predicateForSamples(withStart: start, end: .now)
+        let descriptor = HKStatisticsCollectionQueryDescriptor(
+            predicate: .quantitySample(type: HKQuantityType(.stepCount), predicate: predicate),
+            options: .cumulativeSum,
+            anchorDate: anchor,
+            intervalComponents: DateComponents(day: 1)
+        )
+        guard let collection = try? await descriptor.result(for: store) else { return [] }
+        var days: [(Date, Int)] = []
+        collection.enumerateStatistics(from: start, to: .now) { stats, _ in
+            if let sum = stats.sumQuantity()?.doubleValue(for: HKUnit.count()), sum > 0 {
+                days.append((stats.startDate, Int(sum)))
+            }
+        }
+        return days
+    }
+
+    /// All workouts in the last `lastDays` days, newest first.
+    func workoutHistory(lastDays: Int) async -> [WorkoutInfo] {
+        let calendar = Calendar.current
+        guard let start = calendar.date(byAdding: .day, value: -lastDays, to: calendar.startOfDay(for: .now)) else { return [] }
+        let predicate = HKQuery.predicateForSamples(withStart: start, end: .now)
+        let descriptor = HKSampleQueryDescriptor(
+            predicates: [.workout(predicate)],
+            sortDescriptors: [SortDescriptor(\.startDate, order: .reverse)]
+        )
+        guard let workouts = try? await descriptor.result(for: store) else { return [] }
+        return workouts.map {
+            WorkoutInfo(
+                name: Self.workoutName($0.workoutActivityType),
+                minutes: Int($0.duration / 60),
+                start: $0.startDate
+            )
+        }
+    }
+
+    /// All weight readings in the last `lastDays` days, newest first.
+    func weightHistory(lastDays: Int) async -> [WeightReading] {
+        let calendar = Calendar.current
+        guard let start = calendar.date(byAdding: .day, value: -lastDays, to: calendar.startOfDay(for: .now)) else { return [] }
+        let usesPounds = snapshot.usesPounds
+        let unit: HKUnit = usesPounds ? .pound() : .gramUnit(with: .kilo)
+        let predicate = HKQuery.predicateForSamples(withStart: start, end: .now)
+        let descriptor = HKSampleQueryDescriptor(
+            predicates: [.quantitySample(type: HKQuantityType(.bodyMass), predicate: predicate)],
+            sortDescriptors: [SortDescriptor(\.startDate, order: .reverse)]
+        )
+        guard let samples = try? await descriptor.result(for: store) else { return [] }
+        return samples.map {
+            WeightReading(
+                value: $0.quantity.doubleValue(for: unit),
+                unitLabel: usesPounds ? "lb" : "kg",
+                date: $0.startDate
+            )
+        }
     }
 
     struct WorkoutInfo: Identifiable {

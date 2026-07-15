@@ -11,19 +11,38 @@ import SwiftUI
 
 struct StatGrid: View {
     let snapshot: HealthSnapshot
+    /// Every card is a door: tapping one opens that metric's recent history
+    var onOpen: (Metric) -> Void = { _ in }
 
     private let columns = [GridItem(.flexible(), spacing: 11), GridItem(.flexible(), spacing: 11)]
 
     var body: some View {
         LazyVGrid(columns: columns, spacing: 11) {
-            StatCard(icon: .ring, label: "Steps", value: stepsValue, valueSuffix: nil, sub: stepsSub)
-            StatCard(icon: .emoji("🌙"), label: "Sleep", value: sleepValue, valueSuffix: nil, sub: sleepSub)
-            StatCard(icon: .emoji("🏋"), label: "Training", value: "\(snapshot.workoutsThisWeek)",
-                     valueSuffix: " this week", sub: trainingSub, subHighlighted: snapshot.workoutsThisWeek >= 3)
-            StatCard(icon: .emoji("⚖"), label: "Weight", value: weightValue,
-                     valueSuffix: snapshot.latestWeight != nil ? snapshot.weightUnitLabel : nil,
-                     sub: weightSub, subHighlighted: (snapshot.weightChangeTwoWeeks ?? 0) < 0)
+            card(.steps) {
+                StatCard(icon: .ring, label: "Steps", value: stepsValue, valueSuffix: nil, sub: stepsSub)
+            }
+            card(.sleep) {
+                StatCard(icon: .emoji("🌙"), label: "Sleep", value: sleepValue, valueSuffix: nil, sub: sleepSub)
+            }
+            card(.training) {
+                StatCard(icon: .emoji("🏋"), label: "Training", value: "\(snapshot.workoutsThisWeek)",
+                         valueSuffix: " this week", sub: trainingSub, subHighlighted: snapshot.workoutsThisWeek >= 3)
+            }
+            card(.weight) {
+                StatCard(icon: .emoji("⚖"), label: "Weight", value: weightValue,
+                         valueSuffix: snapshot.latestWeight != nil ? snapshot.weightUnitLabel : nil,
+                         sub: weightSub, subHighlighted: (snapshot.weightChangeTwoWeeks ?? 0) < 0)
+            }
         }
+    }
+
+    private func card(_ metric: Metric, @ViewBuilder content: () -> some View) -> some View {
+        Button {
+            onOpen(metric)
+        } label: {
+            content()
+        }
+        .buttonStyle(.plain)
     }
 
     // Steps
