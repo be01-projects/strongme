@@ -4,6 +4,16 @@
 
 ---
 
+# Post-2.5 — forgiveness batch
+
+1. **Undo in the toast.** Every log and delete now carries a 4.5-second Undo: one-tap usuals, food/weight/target confirms, and History deletions (food, reflections, and app-written weigh-ins re-insert on undo). Forgiveness is the design brief; this is its cheapest expression.
+2. **Coach review cache.** Reopening the coach reuses the last review while the underlying data hasn't changed (SHA-256 over the trend summary minus its volatile lines — timestamp, live step count — plus the day). Verified: a relaunch renders the review instantly with zero API calls. New data → fresh review, as before.
+3. **Editable meal label.** The "Breakfast · logged to food" line on the confirm sheet is a menu — tap to recategorize before logging.
+4. **Deletable spoken weigh-ins.** Weight rows in History show a trash button *only* for samples this app wrote (source check against the bundle ID) — a misheard "812" no longer requires a trip to the Health app. Scale/watch samples stay read-only. Sub-line distinguishes "you said it" vs "synced".
+5. **Permission hint.** The metric-sheet empty state now says where to fix Health access if data never fills in.
+
+---
+
 # Post-2.5 — dead-end pass (dogfood feedback)
 
 Three fixes from first real use: things you could see but not touch.

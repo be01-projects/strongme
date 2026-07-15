@@ -87,7 +87,8 @@ final class HealthKitService {
 
     // MARK: - Writes
 
-    func saveWeight(value: Double, unit: HKUnit, date: Date = .now) async throws {
+    @discardableResult
+    func saveWeight(value: Double, unit: HKUnit, date: Date = .now) async throws -> HKQuantitySample {
         let quantity = HKQuantity(unit: unit, doubleValue: value)
         let sample = HKQuantitySample(
             type: HKQuantityType(.bodyMass),
@@ -95,6 +96,13 @@ final class HealthKitService {
             start: date, end: date
         )
         try await store.save(sample)
+        await refresh()
+        return sample
+    }
+
+    /// Delete a sample this app wrote (undo, or clearing a misheard weight).
+    func deleteSample(_ sample: HKObject) async {
+        try? await store.delete(sample)
         await refresh()
     }
 
@@ -309,13 +317,7 @@ final class HealthKitService {
             sortDescriptors: [SortDescriptor(\.startDate, order: .reverse)]
         )
         guard let samples = try? await descriptor.result(for: store) else { return [] }
-        return samples.map {
-            WeightReading(
-                value: $0.quantity.doubleValue(for: unit),
-                unitLabel: usesPounds ? "lb" : "kg",
-                date: $0.startDate
-            )
-        }
+        return samples.map { Self.reading($0, unit: unit, usesPounds: usesPounds) }
     }
 
     struct WorkoutInfo: Identifiable {
@@ -330,6 +332,10 @@ final class HealthKitService {
         let value: Double
         let unitLabel: String
         let date: Date
+        /// Only readings this app wrote can be deleted; a watch or smart
+        /// scale's samples belong to Health.
+        let isFromThisApp: Bool
+        let sample: HKQuantitySample?
     }
 
     func workouts(on day: Date) async -> [WorkoutInfo] {
@@ -359,13 +365,18 @@ final class HealthKitService {
             sortDescriptors: [SortDescriptor(\.startDate)]
         )
         guard let samples = try? await descriptor.result(for: store) else { return [] }
-        return samples.map {
-            WeightReading(
-                value: $0.quantity.doubleValue(for: unit),
-                unitLabel: usesPounds ? "lb" : "kg",
-                date: $0.startDate
-            )
-        }
+        return samples.map { Self.reading($0, unit: unit, usesPounds: usesPounds) }
+    }
+
+    private static func reading(_ sample: HKQuantitySample, unit: HKUnit, usesPounds: Bool) -> WeightReading {
+        let ownBundle = sample.sourceRevision.source.bundleIdentifier == Bundle.main.bundleIdentifier
+        return WeightReading(
+            value: sample.quantity.doubleValue(for: unit),
+            unitLabel: usesPounds ? "lb" : "kg",
+            date: sample.startDate,
+            isFromThisApp: ownBundle,
+            sample: ownBundle ? sample : nil
+        )
     }
 
     /// Day numbers within `month` that have a workout or weight reading —

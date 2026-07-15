@@ -35,6 +35,13 @@ Build order follows the spec's de-risk sequence.*
 - [x] Reflections on Today tappable to edit; protein card opens today's entries
 - [x] Stat cards open a 2-week metric history (bars/rows) with ask-coach one tap deeper
 
+## ✅ Post-2.5 forgiveness batch *(2026-07-15)*
+- [x] Undo in the toast for every log and delete
+- [x] Coach review cached against a data-stamp (instant, free reopens)
+- [x] Meal label editable on the confirm sheet
+- [x] App-written weigh-ins deletable from History (Health-owned ones stay read-only)
+- [x] Health-permission hint in empty states
+
 ## ⏳ Milestone 3 — logging without opening the app
 - [ ] App Intents foundation ("log my lunch", "log a reflection") — Siri + Shortcuts
 - [ ] Action Button support (hold → talk → parser)

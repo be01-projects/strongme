@@ -247,22 +247,27 @@ struct CaptureSheet: View {
         let items = draft.chips.map {
             FoodItemRecord(name: $0.name, proteinGrams: $0.proteinGrams, calories: $0.calories)
         }
-        modelContext.insert(FoodEntry(date: entryDate, mealLabel: draft.meal, items: items, rawText: draft.rawText))
+        let entry = FoodEntry(date: entryDate, mealLabel: draft.meal, items: items, rawText: draft.rawText)
+        modelContext.insert(entry)
         UsualLearner.record(items: items, meal: draft.meal, context: modelContext)
 
-        toast.show("Logged · +\(Int(draft.proteinGrams.rounded()))g protein")
+        toast.show("Logged · +\(Int(draft.proteinGrams.rounded()))g protein") { [modelContext] in
+            modelContext.delete(entry)
+        }
         dismiss()
     }
 
     private func confirmWeight(value: Double, unit: String) {
         Task {
             do {
-                try await health.saveWeight(
+                let sample = try await health.saveWeight(
                     value: value,
                     unit: unit == "kg" ? .gramUnit(with: .kilo) : .pound(),
                     date: entryDate
                 )
-                toast.show("Weight logged · \(trimmed(value)) \(unit)")
+                toast.show("Weight logged · \(trimmed(value)) \(unit)") { [health] in
+                    Task { await health.deleteSample(sample) }
+                }
                 dismiss()
             } catch {
                 phase = .notice("Couldn't save to Health. Check Health permissions and try again.")
@@ -492,8 +497,11 @@ struct CaptureSheet: View {
                 .padding(.bottom, 18)
 
             Button {
+                let previous = proteinTarget
                 proteinTarget = grams
-                toast.show("Target set · \(Int(grams))g protein")
+                toast.show("Target set · \(Int(grams))g protein") {
+                    UserDefaults.standard.set(previous, forKey: "proteinTargetGrams")
+                }
                 dismiss()
             } label: {
                 Text("Set it").confirmButtonStyle()
@@ -608,10 +616,22 @@ private struct FoodConfirmView: View {
             Text("Heard you say")
                 .font(AppFont.ui(12, .medium))
                 .foregroundStyle(Palette.muted)
-            Text("\(draft.meal.capitalized == "Unknown" ? "Meal" : draft.meal.capitalized) · logged to food")
-                .font(AppFont.coach(19))
-                .foregroundStyle(Palette.ink)
-                .padding(.top, 2)
+            // The meal label is a guess too — tap to fix it like a chip
+            Menu {
+                ForEach(["breakfast", "lunch", "dinner", "snack"], id: \.self) { meal in
+                    Button(meal.capitalized) { draft.meal = meal }
+                }
+            } label: {
+                HStack(spacing: 5) {
+                    Text("\(draft.meal.capitalized == "Unknown" ? "Meal" : draft.meal.capitalized) · logged to food")
+                        .font(AppFont.coach(19))
+                        .foregroundStyle(Palette.ink)
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(Palette.indigo)
+                }
+            }
+            .padding(.top, 2)
             Text(macroLine)
                 .font(AppFont.ui(13, .semibold))
                 .foregroundStyle(Palette.apricot)

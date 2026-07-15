@@ -123,7 +123,7 @@ struct MetricSheet: View {
             Text("🌤").font(.system(size: 28)).opacity(0.55)
             Text(metric == .weight
                  ? "No readings yet.\nSay it once a morning: “182 this morning.”"
-                 : "Nothing here yet.\nThis syncs from Apple Health on its own.")
+                 : "Nothing here yet — this syncs from Apple Health on its own.\nIf it never fills in, check the Health app → your profile → Apps → StrongMe.")
                 .font(AppFont.coach(16))
                 .foregroundStyle(Color(hex: 0x565B6B))
                 .multilineTextAlignment(.center)

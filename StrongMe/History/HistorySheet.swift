@@ -8,6 +8,7 @@
 //  the day detail lives inline below the grid.
 //
 
+import HealthKit
 import SwiftData
 import SwiftUI
 
@@ -243,8 +244,7 @@ struct DayDetailSection: View {
                 emptyState
             } else {
                 ForEach(weights) { reading in
-                    recordRow(icon: "⚖", title: "Weight",
-                              subtitle: "\(String(format: "%.1f", reading.value)) \(reading.unitLabel) · synced")
+                    weightRow(reading)
                 }
                 ForEach(workouts) { workout in
                     recordRow(icon: "🏋", title: workout.name,
@@ -314,6 +314,54 @@ struct DayDetailSection: View {
         .cardBackground(cornerRadius: 16)
     }
 
+    private func weightRow(_ reading: HealthKitService.WeightReading) -> some View {
+        HStack(spacing: 12) {
+            iconBox("⚖")
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Weight")
+                    .font(AppFont.ui(14, .semibold))
+                    .foregroundStyle(Palette.ink)
+                Text("\(String(format: "%.1f", reading.value)) \(reading.unitLabel) · \(reading.isFromThisApp ? "you said it" : "synced")")
+                    .font(AppFont.ui(12, .medium))
+                    .foregroundStyle(Palette.muted)
+            }
+            Spacer()
+            // Only readings this app wrote are deletable; a scale/watch
+            // sample belongs to Health
+            if reading.isFromThisApp, let sample = reading.sample {
+                Button {
+                    Task {
+                        await health.deleteSample(sample)
+                        await load()
+                        onChange()
+                        toast.show("Deleted") { [health] in
+                            Task {
+                                try? await health.saveWeight(
+                                    value: reading.value,
+                                    unit: reading.unitLabel == "kg" ? .gramUnit(with: .kilo) : .pound(),
+                                    date: reading.date
+                                )
+                                await load()
+                                onChange()
+                            }
+                        }
+                    }
+                } label: {
+                    Image(systemName: "trash")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(Palette.muted)
+                        .frame(width: 30, height: 30)
+                        .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(.white))
+                        .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(Palette.hairline))
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 13)
+        .cardBackground(cornerRadius: 16)
+    }
+
     private func foodRow(_ entry: FoodEntry) -> some View {
         HStack(spacing: 12) {
             iconBox("🥣")
@@ -337,10 +385,15 @@ struct DayDetailSection: View {
                     )
                 },
                 delete: {
+                    let (date, meal, items, raw) = (entry.date, entry.mealLabel, entry.items, entry.rawText)
                     modelContext.delete(entry)
-                    toast.show("Deleted")
                     Task { await load() }
                     onChange()
+                    toast.show("Deleted") { [modelContext] in
+                        modelContext.insert(FoodEntry(date: date, mealLabel: meal, items: items, rawText: raw))
+                        Task { await load() }
+                        onChange()
+                    }
                 }
             )
         }
@@ -373,10 +426,15 @@ struct DayDetailSection: View {
                     )
                 },
                 delete: {
+                    let (date, text, tags) = (entry.date, entry.text, entry.tags)
                     modelContext.delete(entry)
-                    toast.show("Deleted")
                     Task { await load() }
                     onChange()
+                    toast.show("Deleted") { [modelContext] in
+                        modelContext.insert(ReflectionEntry(date: date, text: text, tags: tags))
+                        Task { await load() }
+                        onChange()
+                    }
                 }
             )
         }

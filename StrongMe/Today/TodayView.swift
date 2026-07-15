@@ -14,16 +14,30 @@ import SwiftUI
 @Observable
 final class ToastCenter {
     private(set) var message: String?
+    private(set) var undoAction: (() -> Void)?
     private var hideTask: Task<Void, Never>?
 
-    func show(_ text: String) {
+    /// Forgiveness in one tap: pass `undo` and the toast carries an Undo
+    /// button (and lingers a little longer).
+    func show(_ text: String, undo: (() -> Void)? = nil) {
         hideTask?.cancel()
+        undoAction = undo
         withAnimation(.spring(duration: 0.32)) { message = text }
         hideTask = Task {
-            try? await Task.sleep(for: .seconds(2.1))
+            try? await Task.sleep(for: .seconds(undo == nil ? 2.1 : 4.5))
             guard !Task.isCancelled else { return }
             withAnimation(.spring(duration: 0.32)) { self.message = nil }
+            self.undoAction = nil
         }
+    }
+
+    func performUndo() {
+        let action = undoAction
+        undoAction = nil
+        hideTask?.cancel()
+        withAnimation(.spring(duration: 0.32)) { message = nil }
+        action?()
+        show("Undone")
     }
 }
 
@@ -118,7 +132,7 @@ struct TodayContent: View {
             )
 
             if let message = toast.message {
-                ToastView(message: message)
+                ToastView(message: message, onUndo: toast.undoAction != nil ? { toast.performUndo() } : nil)
                     .padding(.bottom, 118)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
@@ -325,13 +339,17 @@ struct TodayContent: View {
     }
 
     private func quickLog(_ usual: UsualMeal) {
-        modelContext.insert(FoodEntry(mealLabel: LocalFallbackParser.inferMeal(),
-                                      items: usual.items,
-                                      rawText: usual.name))
+        let entry = FoodEntry(mealLabel: LocalFallbackParser.inferMeal(),
+                              items: usual.items,
+                              rawText: usual.name)
+        modelContext.insert(entry)
         usual.timesLogged += 1
         usual.lastUsed = .now
         usual.isSeed = false
-        toast.show("Logged · +\(Int(usual.proteinGrams.rounded()))g protein")
+        toast.show("Logged · +\(Int(usual.proteinGrams.rounded()))g protein") { [modelContext] in
+            modelContext.delete(entry)
+            usual.timesLogged = max(0, usual.timesLogged - 1)
+        }
     }
 
     // MARK: Reflection
@@ -412,6 +430,7 @@ struct TodayContent: View {
 
 struct ToastView: View {
     let message: String
+    var onUndo: (() -> Void)?
 
     var body: some View {
         HStack(spacing: 9) {
@@ -426,6 +445,18 @@ struct ToastView: View {
             Text(message)
                 .font(AppFont.ui(13.5, .semibold))
                 .foregroundStyle(.white)
+
+            if let onUndo {
+                Rectangle()
+                    .fill(.white.opacity(0.25))
+                    .frame(width: 1, height: 16)
+                Button(action: onUndo) {
+                    Text("Undo")
+                        .font(AppFont.ui(13.5, .bold))
+                        .foregroundStyle(Palette.indigoLight)
+                }
+                .buttonStyle(.plain)
+            }
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 12)
