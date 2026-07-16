@@ -87,7 +87,7 @@ enum AppFont {
         case .medium: "Fraunces-Medium"
         case .semibold: "Fraunces-SemiBold"
         }
-        return .custom(name, size: size)
+        return .custom(name, size: size, relativeTo: textStyle(for: size))
     }
 
     /// Inter — labels, values, buttons, everything else.
@@ -98,7 +98,23 @@ enum AppFont {
         case .semibold: "Inter-SemiBold"
         case .bold: "Inter-Bold"
         }
-        return .custom(name, size: size)
+        return .custom(name, size: size, relativeTo: textStyle(for: size))
+    }
+
+    /// Anchors each design size to the nearest system text style so the
+    /// whole app scales with Dynamic Type.
+    private static func textStyle(for size: CGFloat) -> Font.TextStyle {
+        switch size {
+        case ..<12: .caption2
+        case ..<13.5: .caption
+        case ..<15: .footnote
+        case ..<16.5: .subheadline
+        case ..<18: .callout
+        case ..<20: .body
+        case ..<24: .title3
+        case ..<28: .title2
+        default: .title
+        }
     }
 }
 

@@ -13,7 +13,7 @@ import Foundation
 
 struct ParsedEntry: Codable {
     enum Kind: String, Codable {
-        case food, weight, reflection, distress, other
+        case food, weight, reflection, distress, target, other
     }
 
     var kind: Kind
@@ -22,6 +22,7 @@ struct ParsedEntry: Codable {
     var weightValue: Double
     var weightUnit: String          // lb | kg | unknown
     var reflectionTags: [String]
+    var targetProteinG: Double      // for kind == .target
     var summary: String
 
     enum CodingKeys: String, CodingKey {
@@ -29,6 +30,7 @@ struct ParsedEntry: Codable {
         case weightValue = "weight_value"
         case weightUnit = "weight_unit"
         case reflectionTags = "reflection_tags"
+        case targetProteinG = "target_protein_g"
         case summary
     }
 }
@@ -64,7 +66,13 @@ enum EntryParser {
                     user: text,
                     schema: schema
                 )
-                let entry = try JSONDecoder().decode(ParsedEntry.self, from: data)
+                var entry = try JSONDecoder().decode(ParsedEntry.self, from: data)
+                // Belt and suspenders on the one guardrail that can't miss:
+                // if the on-device screen sees clear distress signals, the
+                // care response wins regardless of the model's routing.
+                if entry.kind != .distress, LocalFallbackParser.containsDistressSignals(text) {
+                    entry.kind = .distress
+                }
                 return (entry, .claude)
             } catch {
                 // Network/API trouble: degrade to the local guess rather than
@@ -93,11 +101,16 @@ enum EntryParser {
         - "distress": the entry signals serious emotional distress, hopelessness, \
         or thoughts of self-harm. When uncertain between reflection and distress \
         and the content is concerning, choose distress — err on the side of care.
+        - "target": the user is setting their daily protein target (e.g. "set \
+        my protein target to 160"). Put the grams in target_protein_g.
         - "other": none of the above (questions, commands, noise).
 
         Food rules:
         - Split into individual items. Estimate rough calories and protein for \
         typical portions — trends over precision, protein matters most.
+        - Keep quantities in the item name — "2 eggs", "2 cups of coffee", \
+        "half a burrito" — never a bare "eggs" when a quantity was said. \
+        The macros must reflect that quantity.
         - Round protein to whole grams, calories to the nearest 10.
         - Infer the meal from wording or plausibility; use "unknown" if unclear.
 
@@ -122,7 +135,7 @@ enum EntryParser {
     private static let schema: [String: Any] = [
         "type": "object",
         "properties": [
-            "kind": ["type": "string", "enum": ["food", "weight", "reflection", "distress", "other"]],
+            "kind": ["type": "string", "enum": ["food", "weight", "reflection", "distress", "target", "other"]],
             "meal": ["type": "string", "enum": ["breakfast", "lunch", "dinner", "snack", "unknown"]],
             "items": [
                 "type": "array",
@@ -140,11 +153,41 @@ enum EntryParser {
             "weight_value": ["type": "number"],
             "weight_unit": ["type": "string", "enum": ["lb", "kg", "unknown"]],
             "reflection_tags": ["type": "array", "items": ["type": "string"]],
+            "target_protein_g": ["type": "number"],
             "summary": ["type": "string"],
         ],
-        "required": ["kind", "meal", "items", "weight_value", "weight_unit", "reflection_tags", "summary"],
+        "required": ["kind", "meal", "items", "weight_value", "weight_unit", "reflection_tags", "target_protein_g", "summary"],
         "additionalProperties": false,
     ]
+
+    // MARK: Single-item macro estimate (chip fixes)
+
+    /// When the user renames or adds a chip, re-estimate that one item so
+    /// the fix corrects this log too — not just future parses.
+    static func estimateMacros(for name: String) async -> (protein: Double, calories: Double) {
+        if ClaudeClient.isConfigured {
+            let schema: [String: Any] = [
+                "type": "object",
+                "properties": [
+                    "protein_g": ["type": "number"],
+                    "calories": ["type": "number"],
+                ],
+                "required": ["protein_g", "calories"],
+                "additionalProperties": false,
+            ]
+            if let data = try? await ClaudeClient.completeJSON(
+                system: "Estimate rough protein grams and calories for one food item at a typical single portion. Round protein to whole grams, calories to the nearest 10. Trends over precision.",
+                user: name,
+                schema: schema
+            ),
+               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                let protein = (object["protein_g"] as? Double) ?? 0
+                let calories = (object["calories"] as? Double) ?? 0
+                return (protein, calories)
+            }
+        }
+        return LocalFallbackParser.estimate(name: name) ?? (0, 0)
+    }
 }
 
 // MARK: - On-device fallback
@@ -153,18 +196,33 @@ enum EntryParser {
 /// unreachable; the UI labels the result as a rough on-device guess.
 enum LocalFallbackParser {
 
+    /// Deliberately conservative — catches only the clearest signals so the
+    /// app never replies "logged!" to them. Runs as a backstop over the
+    /// Claude parse too, since routing lives on a small model.
+    static func containsDistressSignals(_ raw: String) -> Bool {
+        let text = raw.lowercased()
+        let signals = ["kill myself", "end it all", "want to die", "hurt myself",
+                       "no point in", "can't go on", "suicid", "hopeless", "worthless"]
+        return signals.contains(where: text.contains)
+    }
+
     static func parse(_ raw: String) -> ParsedEntry {
         let text = raw.lowercased()
 
-        // Distress screening is deliberately conservative here — the real
-        // judgment lives in the Claude parse. This catches only the clearest
-        // signals so the app never replies "logged!" to them.
-        let distressSignals = ["kill myself", "end it all", "want to die", "hurt myself",
-                               "no point in", "can't go on", "suicid", "hopeless", "worthless"]
-        if distressSignals.contains(where: text.contains) {
+        if containsDistressSignals(text) {
             return ParsedEntry(kind: .distress, meal: "unknown", items: [],
                                weightValue: 0, weightUnit: "unknown",
-                               reflectionTags: [], summary: "")
+                               reflectionTags: [], targetProteinG: 0, summary: "")
+        }
+
+        // Protein target: "set my protein target to 160"
+        if text.contains("target"), text.contains("protein") || text.contains("goal"),
+           let match = text.firstMatch(of: /(\d{2,3})/),
+           let value = Double(match.1), (40...400).contains(value) {
+            return ParsedEntry(kind: .target, meal: "unknown", items: [],
+                               weightValue: 0, weightUnit: "unknown",
+                               reflectionTags: [], targetProteinG: value,
+                               summary: "Protein target \(Int(value))g")
         }
 
         // Weight: a 2-3 digit number near weight-ish words, or a bare "182 this morning"
@@ -173,7 +231,7 @@ enum LocalFallbackParser {
                      : (text.contains("lb") || text.contains("pound")) ? "lb" : "unknown"
             return ParsedEntry(kind: .weight, meal: "unknown", items: [],
                                weightValue: value, weightUnit: unit,
-                               reflectionTags: [], summary: "Weight \(value)")
+                               reflectionTags: [], targetProteinG: 0, summary: "Weight \(value)")
         }
 
         let foodish = foodTable.keys.contains(where: text.contains)
@@ -190,20 +248,20 @@ enum LocalFallbackParser {
             if text.contains("slept") { tags.append(text.contains("great") || text.contains("well") ? "slept well" : "sleep") }
             return ParsedEntry(kind: .reflection, meal: "unknown", items: [],
                                weightValue: 0, weightUnit: "unknown",
-                               reflectionTags: Array(tags.prefix(3)), summary: "Reflection")
+                               reflectionTags: Array(tags.prefix(3)), targetProteinG: 0, summary: "Reflection")
         }
 
         if foodish {
             let items = foodItems(in: text)
             return ParsedEntry(kind: .food, meal: inferMeal(), items: items,
                                weightValue: 0, weightUnit: "unknown",
-                               reflectionTags: [], summary: "Meal · rough estimate")
+                               reflectionTags: [], targetProteinG: 0, summary: "Meal · rough estimate")
         }
 
         // Unclassifiable → keep it as a reflection so nothing is lost
         return ParsedEntry(kind: .reflection, meal: "unknown", items: [],
                            weightValue: 0, weightUnit: "unknown",
-                           reflectionTags: [], summary: "Note")
+                           reflectionTags: [], targetProteinG: 0, summary: "Note")
     }
 
     private static func weightValue(in text: String) -> Double? {
@@ -224,6 +282,17 @@ enum LocalFallbackParser {
         case 17..<22: "dinner"
         default: "snack"
         }
+    }
+
+    /// Best local guess for a single renamed/added item — longest table key
+    /// contained in the name wins. Nil when nothing matches.
+    static func estimate(name: String) -> (Double, Double)? {
+        let lowered = name.lowercased()
+        let match = foodTable.keys
+            .filter { lowered.contains($0) }
+            .max { $0.count < $1.count }
+        guard let match else { return nil }
+        return foodTable[match]
     }
 
     private static func foodItems(in text: String) -> [ParsedFoodItem] {

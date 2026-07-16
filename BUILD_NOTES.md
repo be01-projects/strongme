@@ -4,6 +4,51 @@
 
 ---
 
+# Post-2.5 — button-up batch
+
+1. **AccentColor → indigo** — alerts, menus, and selection chrome no longer flash iOS blue.
+2. **Launch screen → oat** — kills the white blink at cold start (`LaunchBackground` color asset + `UILaunchScreen` dict).
+3. **Dynamic Type works** — every `AppFont` size is anchored to the nearest system text style via `relativeTo:`; verified at XXXL (layout holds, minor label wrapping at extreme sizes only).
+4. **VoiceOver labels** on all icon-only buttons (chip ×, edit/delete, keyboard toggle, month chevrons, coach send).
+5. **Long-press a usual chip → "Remove from usuals"** — one-off meals can't squat in the row.
+6. **Correction dedup** — repeat fixes refresh the existing correction's date instead of stacking duplicates in the 10-slot prompt window.
+
+---
+
+# Post-2.5 — forgiveness batch
+
+1. **Undo in the toast.** Every log and delete now carries a 4.5-second Undo: one-tap usuals, food/weight/target confirms, and History deletions (food, reflections, and app-written weigh-ins re-insert on undo). Forgiveness is the design brief; this is its cheapest expression.
+2. **Coach review cache.** Reopening the coach reuses the last review while the underlying data hasn't changed (SHA-256 over the trend summary minus its volatile lines — timestamp, live step count — plus the day). Verified: a relaunch renders the review instantly with zero API calls. New data → fresh review, as before.
+3. **Editable meal label.** The "Breakfast · logged to food" line on the confirm sheet is a menu — tap to recategorize before logging.
+4. **Deletable spoken weigh-ins.** Weight rows in History show a trash button *only* for samples this app wrote (source check against the bundle ID) — a misheard "812" no longer requires a trip to the Health app. Scale/watch samples stay read-only. Sub-line distinguishes "you said it" vs "synced".
+5. **Permission hint.** The metric-sheet empty state now says where to fix Health access if data never fills in.
+
+---
+
+# Post-2.5 — dead-end pass (dogfood feedback)
+
+Three fixes from first real use: things you could see but not touch.
+
+1. **History opens on today.** The day detail moved from a nested sheet to an inline section below the month grid, pre-selected to today — open the calendar and today's entries (or its honest empty state) are already there. Tapping another day swaps the list; selected day gets an indigo outline.
+2. **Everything logged is now reachable for editing.** Recent reflections on Today are tappable (reopens the talk control prefilled, replaces on confirm — same as History rows, now with a pencil affordance), and the protein card opens History-on-today where meals are edited/deleted. Synced Health rows (workouts, watch/scale weights) stay read-only — Health owns them.
+3. **Stat cards are doors, not dead pixels.** Tapping Steps / Sleep / Training / Weight opens that metric's **last two weeks** — calm bars for steps and sleep, a workout list for training, readings with deltas for weight (`MetricSheet.swift`). Direction over decimal points, never a raw table. "Ask your coach →" sits at the bottom and opens the coach with a tailored question auto-asked — history first, intelligence one tap deeper. Debug arg: `-open-metric-steps|sleep|training|weight`.
+
+---
+
+# Milestone 2.5 — experience polish
+
+Seven fixes that close the gap between "works" and "feels effortless", before moving to system entry points:
+
+1. **Chip fixes now fix this log.** Renaming a chip ("coffee" → "large oat latte") re-estimates its protein/calories via a tiny single-item Claude call (local table fallback), so the macros correct immediately — previously only *future* parses learned. The macro line shows "updating estimate…" while it resolves.
+2. **Add-a-chip** — a dashed ＋ chip in the confirm sheet for anything the parse missed; added items get the same async macro estimate.
+3. **Auto-finish on silence** — speak, pause ~1.8s, and the entry files itself (transcript-change timestamps from SFSpeech). The "Done" button remains as a manual override; "Type instead" still available.
+4. **Day rollover + freshness** — `TodayView` is now a thin wrapper owning `dayStart`; the content (and its day-anchored queries) rebuilds at midnight, and Health data refreshes every time the app returns to the foreground. Previously an overnight-resident app showed yesterday's protein.
+5. **Insight staleness** — the daily read's cache key is now a stamp of *day + meals logged + weight + target*, so logging a meal regenerates it (verified live: the read updated to cite "12g of protein logged today"). Any same-day cached read still shows while a new one generates.
+6. **Voice-set protein target** — "set my protein target to 160" is a new parser kind with its own confirm card; updates the bar and the coach's context. Works in the offline fallback too.
+7. **Feel** — typing mode auto-focuses the keyboard; logging fires a success haptic alongside the toast.
+
+---
+
 # Milestone 2 — the coach + calendar/history
 
 ## What's in this build
@@ -20,7 +65,12 @@ Priority-ordered: coach-not-clinician (defers on medical) → cite real figures,
 
 ## Model choice (updated)
 
-Everything now runs on **`claude-sonnet-5`** — near-Opus quality on this kind of work at a third of the cost ($3/$15 vs $10/$50 per MTok), and snappier for the parse sheet. The original `claude-fable-5` + Opus-fallback setup from milestone 1 was swapped out; the Fable-specific `fallbacks` parameter and beta header went with it. Model is a single constant in `ClaudeClient.swift` if you want to move the coach back up-tier later.
+Two tiers, two constants in `ClaudeClient.swift`:
+
+- **`claude-haiku-4-5`** (`parseModel`) — entry parsing and chip macro estimates. Routine structured extraction; $1/$5 per MTok and the fastest tier, which is exactly what the parse sheet wants. Haiku doesn't take the `effort` parameter, so the parse path sends only the JSON-schema `output_config`. Because routing (including distress) now lives on a small model, the conservative on-device distress screen runs as a **backstop over every Claude parse** — if it sees clear signals, the care response wins regardless of the model's routing.
+- **`claude-sonnet-5`** (`model`) — the coach and the daily insight, the product's voice.
+
+History: milestone 1 shipped on `claude-fable-5` + Opus fallback (Fable-specific `fallbacks` param and beta header since removed) → all-Sonnet in milestone 2 → this split.
 
 ## Milestone 2 choices
 

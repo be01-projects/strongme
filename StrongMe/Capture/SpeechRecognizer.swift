@@ -16,6 +16,8 @@ final class SpeechRecognizer {
     private(set) var transcript = ""
     private(set) var isListening = false
     private(set) var errorMessage: String?
+    /// When the transcript last changed — drives auto-finish on silence
+    private(set) var lastChangeAt: Date?
 
     private let recognizer = SFSpeechRecognizer()
     private let audioEngine = AVAudioEngine()
@@ -65,12 +67,17 @@ final class SpeechRecognizer {
             audioEngine.prepare()
             try audioEngine.start()
             isListening = true
+            lastChangeAt = .now
 
             task = recognizer.recognitionTask(with: request) { [weak self] result, error in
                 Task { @MainActor [weak self] in
                     guard let self else { return }
                     if let result {
-                        self.transcript = result.bestTranscription.formattedString
+                        let text = result.bestTranscription.formattedString
+                        if text != self.transcript {
+                            self.transcript = text
+                            self.lastChangeAt = .now
+                        }
                     }
                     if error != nil || (result?.isFinal ?? false) {
                         self.stopEngine()

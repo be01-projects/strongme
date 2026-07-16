@@ -11,6 +11,9 @@ import SwiftData
 import SwiftUI
 
 struct CoachSheet: View {
+    /// Set when a stat card opened the coach — asked right after the review
+    var initialQuestion: String?
+
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
     @Environment(HealthKitService.self) private var health
@@ -63,10 +66,14 @@ struct CoachSheet: View {
             footer
         }
         .presentationDetents([.large])
+        .presentationDragIndicator(.hidden)
         .presentationBackground(Palette.app)
         .presentationCornerRadius(30)
         .task {
             await session.start(context: modelContext, health: health, proteinTarget: proteinTarget)
+            if let initialQuestion {
+                await session.ask(initialQuestion)
+            }
         }
     }
 
@@ -254,6 +261,7 @@ struct CoachSheet: View {
                         .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Palette.confirmGradient))
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel("Send question")
                 .disabled(!session.isLive || question.trimmingCharacters(in: .whitespaces).isEmpty)
             }
         }

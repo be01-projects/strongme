@@ -7,6 +7,7 @@
 //  it sees is exactly what the user can read in the coach sheet.
 //
 
+import CryptoKit
 import Foundation
 import Observation
 import SwiftData
@@ -70,9 +71,6 @@ final class CoachSession {
             return
         }
 
-        isThinking = true
-        defer { isThinking = false }
-
         let opening = """
         DATA
         \(dataSummary)
@@ -82,6 +80,20 @@ final class CoachSession {
         """
         apiMessages = [["role": "user", "content": opening]]
 
+        // Reopening the coach minutes later shouldn't re-run the review —
+        // reuse it while the underlying data hasn't changed.
+        let stamp = Self.reviewStamp(for: dataSummary)
+        let defaults = UserDefaults.standard
+        if defaults.string(forKey: "coachReviewStamp") == stamp,
+           let cached = defaults.string(forKey: "coachReviewText"), !cached.isEmpty {
+            review = cached
+            apiMessages.append(["role": "assistant", "content": cached])
+            return
+        }
+
+        isThinking = true
+        defer { isThinking = false }
+
         do {
             let reply = try await ClaudeClient.completeText(
                 system: Self.systemPrompt,
@@ -89,9 +101,23 @@ final class CoachSession {
             )
             apiMessages.append(["role": "assistant", "content": reply])
             review = reply
+            defaults.set(reply, forKey: "coachReviewText")
+            defaults.set(stamp, forKey: "coachReviewStamp")
         } catch {
             review = fallbackText(for: error)
         }
+    }
+
+    /// Day + the non-volatile summary lines. Steps tick up all day and the
+    /// timestamp always moves — neither should force a fresh review.
+    private static func reviewStamp(for summary: String) -> String {
+        let dayKey = Date.now.formatted(.iso8601.year().month().day())
+        let stable = summary
+            .split(separator: "\n")
+            .filter { !$0.hasPrefix("Date:") && !$0.hasPrefix("Steps today:") }
+            .joined(separator: "\n")
+        let digest = SHA256.hash(data: Data((dayKey + stable).utf8))
+        return digest.map { String(format: "%02x", $0) }.joined()
     }
 
     func ask(_ question: String) async {

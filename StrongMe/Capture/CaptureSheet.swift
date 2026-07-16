@@ -61,9 +61,12 @@ struct CaptureSheet: View {
     @Environment(HealthKitService.self) private var health
     @Environment(ToastCenter.self) private var toast
 
+    @AppStorage("proteinTargetGrams") private var proteinTarget = 150.0
+
     @State private var speech = SpeechRecognizer()
     @State private var phase: Phase = .idle
     @State private var typedText = ""
+    @FocusState private var typingFocused: Bool
 
     /// Today logs at the actual moment; back-dated entries land at noon.
     private var entryDate: Date {
@@ -82,6 +85,7 @@ struct CaptureSheet: View {
         case parsing
         case confirmFood(FoodDraft)
         case confirmWeight(value: Double, unit: String, raw: String)
+        case confirmTarget(grams: Double)
         case reflectionSaved(text: String, tags: [String])
         case care
         case notice(String)
@@ -107,6 +111,7 @@ struct CaptureSheet: View {
             .scrollBounceBehavior(.basedOnSize)
         }
         .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.hidden)
         .presentationBackground(Palette.app)
         .presentationCornerRadius(30)
         .task { await begin() }
@@ -128,6 +133,8 @@ struct CaptureSheet: View {
             FoodConfirmView(draft: draft, onConfirm: confirmFood, onCancel: { dismiss() })
         case .confirmWeight(let value, let unit, let raw):
             weightConfirmView(value: value, unit: unit, raw: raw)
+        case .confirmTarget(let grams):
+            targetConfirmView(grams: grams)
         case .reflectionSaved(let text, let tags):
             reflectionView(text: text, tags: tags)
         case .care:
@@ -147,9 +154,31 @@ struct CaptureSheet: View {
             await speech.start()
             if speech.errorMessage != nil {
                 phase = .typing
+                return
             }
+            await autoFinishWhenSilent()
         case .typing:
             phase = .typing
+        }
+    }
+
+    /// Speak, pause, done — a longer pause files the entry without a tap.
+    private func autoFinishWhenSilent() async {
+        while phase == .listening {
+            try? await Task.sleep(for: .milliseconds(250))
+            guard phase == .listening else { return }
+            let transcript = speech.transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+
+            // Recognizer finalized (or died) on its own
+            if !speech.isListening {
+                if transcript.isEmpty { phase = .typing } else { finishListening() }
+                return
+            }
+            if !transcript.isEmpty, let lastChange = speech.lastChangeAt,
+               Date.now.timeIntervalSince(lastChange) > 1.8 {
+                finishListening()
+                return
+            }
         }
     }
 
@@ -189,6 +218,13 @@ struct CaptureSheet: View {
                 : entry.weightUnit
             phase = .confirmWeight(value: entry.weightValue, unit: unit, raw: rawText)
 
+        case .target:
+            guard entry.targetProteinG > 0 else {
+                phase = .notice("I couldn't find a number in that. Try “set my protein target to 160”.")
+                return
+            }
+            phase = .confirmTarget(grams: entry.targetProteinG)
+
         case .reflection, .other:
             deleteReplacedEntries()
             let reflection = ReflectionEntry(date: entryDate, text: rawText, tags: entry.reflectionTags)
@@ -198,36 +234,69 @@ struct CaptureSheet: View {
     }
 
     private func confirmFood(_ draft: FoodDraft) {
-        // Remember edits so the parser stops guessing wrong next time
-        for chip in draft.chips where chip.name != chip.originalName {
-            modelContext.insert(FoodCorrection(original: chip.originalName, corrected: chip.name))
+        // Remember identity fixes so the parser stops guessing wrong next
+        // time. Quantity-only edits ("2 eggs" → "3 eggs") aren't habits —
+        // recording them would teach the parser to inflate future portions.
+        // Repeat fixes refresh the existing correction instead of stacking
+        // duplicates (the prompt only carries the 10 most recent).
+        let existingCorrections = (try? modelContext.fetch(FetchDescriptor<FoodCorrection>())) ?? []
+        for chip in draft.chips
+        where chip.name != chip.originalName
+            && !isQuantityOnlyChange(chip.originalName, chip.name) {
+            if let existing = existingCorrections.first(where: {
+                $0.original.caseInsensitiveCompare(chip.originalName) == .orderedSame
+                    && $0.corrected.caseInsensitiveCompare(chip.name) == .orderedSame
+            }) {
+                existing.date = .now
+            } else {
+                modelContext.insert(FoodCorrection(original: chip.originalName, corrected: chip.name))
+            }
         }
 
         deleteReplacedEntries()
         let items = draft.chips.map {
             FoodItemRecord(name: $0.name, proteinGrams: $0.proteinGrams, calories: $0.calories)
         }
-        modelContext.insert(FoodEntry(date: entryDate, mealLabel: draft.meal, items: items, rawText: draft.rawText))
+        let entry = FoodEntry(date: entryDate, mealLabel: draft.meal, items: items, rawText: draft.rawText)
+        modelContext.insert(entry)
         UsualLearner.record(items: items, meal: draft.meal, context: modelContext)
 
-        toast.show("Logged · +\(Int(draft.proteinGrams.rounded()))g protein")
+        toast.show("Logged · +\(Int(draft.proteinGrams.rounded()))g protein") { [modelContext] in
+            modelContext.delete(entry)
+        }
         dismiss()
     }
 
     private func confirmWeight(value: Double, unit: String) {
         Task {
             do {
-                try await health.saveWeight(
+                let sample = try await health.saveWeight(
                     value: value,
                     unit: unit == "kg" ? .gramUnit(with: .kilo) : .pound(),
                     date: entryDate
                 )
-                toast.show("Weight logged · \(trimmed(value)) \(unit)")
+                toast.show("Weight logged · \(trimmed(value)) \(unit)") { [health] in
+                    Task { await health.deleteSample(sample) }
+                }
                 dismiss()
             } catch {
                 phase = .notice("Couldn't save to Health. Check Health permissions and try again.")
             }
         }
+    }
+
+    /// "2 eggs" → "3 eggs" is the same food; "coffee" → "oat latte" isn't.
+    private func isQuantityOnlyChange(_ before: String, _ after: String) -> Bool {
+        func core(_ text: String) -> String {
+            text.lowercased()
+                .replacingOccurrences(of: #"[\d/.,½¼¾]+"#, with: "", options: .regularExpression)
+                .replacingOccurrences(
+                    of: #"\b(a|an|of|x|cups?|glasses?|slices?|pieces?|servings?|bowls?|halves|half|quarter|large|small|big)\b"#,
+                    with: "", options: .regularExpression
+                )
+                .replacingOccurrences(of: " ", with: "")
+        }
+        return core(before) == core(after)
     }
 
     /// Editing from History re-logs through the same parse→confirm loop,
@@ -275,11 +344,16 @@ struct CaptureSheet: View {
                 .frame(maxWidth: 290)
                 .padding(.top, 12)
 
+            Text("A longer pause files it — no tap needed.")
+                .font(AppFont.ui(11.5, .medium))
+                .foregroundStyle(Palette.muted)
+                .padding(.top, 10)
+
             Button(action: finishListening) {
                 Text("Done — that's the entry")
                     .confirmButtonStyle()
             }
-            .padding(.top, 18)
+            .padding(.top, 14)
 
             Button("Type instead") { speech.stop(); phase = .typing }
                 .font(AppFont.ui(13, .medium))
@@ -297,12 +371,18 @@ struct CaptureSheet: View {
 
             TextField(typingPlaceholder, text: $typedText, axis: .vertical)
                 .font(AppFont.ui(16))
+                .focused($typingFocused)
                 .padding(.horizontal, 18)
                 .frame(minHeight: 54)
                 .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Palette.surface))
                 .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).strokeBorder(Palette.hairline))
                 .submitLabel(.send)
                 .onSubmit(submitTyped)
+                .task {
+                    // let the sheet settle before summoning the keyboard
+                    try? await Task.sleep(for: .milliseconds(350))
+                    typingFocused = true
+                }
 
             Button(action: submitTyped) {
                 Text("Send").confirmButtonStyle()
@@ -394,6 +474,47 @@ struct CaptureSheet: View {
                 confirmWeight(value: value, unit: unit)
             } label: {
                 Text("Looks right — log it").confirmButtonStyle()
+            }
+        }
+    }
+
+    // MARK: Target confirm
+
+    private func targetConfirmView(grams: Double) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("Heard you say")
+                .font(AppFont.ui(12, .medium))
+                .foregroundStyle(Palette.muted)
+            Text("Daily protein target")
+                .font(AppFont.coach(19))
+                .foregroundStyle(Palette.ink)
+                .padding(.top, 4)
+
+            HStack(alignment: .firstTextBaseline, spacing: 4) {
+                Text("\(Int(grams))")
+                    .font(AppFont.ui(34, .semibold))
+                    .foregroundStyle(Palette.apricot)
+                Text("g / day")
+                    .font(AppFont.ui(15, .medium))
+                    .foregroundStyle(Palette.muted)
+            }
+            .padding(.top, 16)
+
+            Text("Currently \(Int(proteinTarget))g. The bar on Today and the coach both follow this.")
+                .font(AppFont.ui(11.5, .medium))
+                .foregroundStyle(Palette.muted)
+                .padding(.top, 10)
+                .padding(.bottom, 18)
+
+            Button {
+                let previous = proteinTarget
+                proteinTarget = grams
+                toast.show("Target set · \(Int(grams))g protein") {
+                    UserDefaults.standard.set(previous, forKey: "proteinTargetGrams")
+                }
+                dismiss()
+            } label: {
+                Text("Set it").confirmButtonStyle()
             }
         }
     }
@@ -496,16 +617,31 @@ private struct FoodConfirmView: View {
 
     @State private var editingChip: ChipItem?
     @State private var editText = ""
+    @State private var addingItem = false
+    @State private var addText = ""
+    @State private var estimatingChipIDs: Set<UUID> = []
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Text("Heard you say")
                 .font(AppFont.ui(12, .medium))
                 .foregroundStyle(Palette.muted)
-            Text("\(draft.meal.capitalized == "Unknown" ? "Meal" : draft.meal.capitalized) · logged to food")
-                .font(AppFont.coach(19))
-                .foregroundStyle(Palette.ink)
-                .padding(.top, 2)
+            // The meal label is a guess too — tap to fix it like a chip
+            Menu {
+                ForEach(["breakfast", "lunch", "dinner", "snack"], id: \.self) { meal in
+                    Button(meal.capitalized) { draft.meal = meal }
+                }
+            } label: {
+                HStack(spacing: 5) {
+                    Text("\(draft.meal.capitalized == "Unknown" ? "Meal" : draft.meal.capitalized) · logged to food")
+                        .font(AppFont.coach(19))
+                        .foregroundStyle(Palette.ink)
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(Palette.indigo)
+                }
+            }
+            .padding(.top, 2)
             Text(macroLine)
                 .font(AppFont.ui(13, .semibold))
                 .foregroundStyle(Palette.apricot)
@@ -515,8 +651,8 @@ private struct FoodConfirmView: View {
             chipGrid
 
             Text(draft.source == .onDeviceFallback
-                 ? "Rough on-device guess (no API key set) — tap a chip to fix the name, × to remove."
-                 : "Tap a chip to fix it, × to remove — it remembers your corrections next time.")
+                 ? "Rough on-device guess (no API key set) — tap a chip to fix it, × to remove, ＋ if something's missing."
+                 : "Tap a chip to fix it, × to remove, ＋ if something's missing — it remembers your corrections next time.")
                 .font(AppFont.ui(11.5, .medium))
                 .foregroundStyle(Palette.muted)
                 .padding(.top, 10)
@@ -538,18 +674,49 @@ private struct FoodConfirmView: View {
                 if let chip = editingChip,
                    let index = draft.chips.firstIndex(where: { $0.id == chip.id }) {
                     let name = editText.trimmingCharacters(in: .whitespaces)
-                    if !name.isEmpty { draft.chips[index].name = name }
+                    if !name.isEmpty, name != chip.name {
+                        draft.chips[index].name = name
+                        reestimate(chipID: chip.id, name: name)
+                    }
                 }
                 editingChip = nil
             }
             Button("Cancel", role: .cancel) { editingChip = nil }
         } message: {
-            Text("The corrected name is remembered for future parses.")
+            Text("Macros re-estimate for this log, and the correction is remembered for future parses.")
+        }
+        .alert("Add an item", isPresented: $addingItem) {
+            TextField("e.g. a cookie", text: $addText)
+            Button("Add") {
+                let name = addText.trimmingCharacters(in: .whitespaces)
+                guard !name.isEmpty else { return }
+                let chip = ChipItem(name: name, originalName: name, proteinGrams: 0, calories: 0)
+                draft.chips.append(chip)
+                reestimate(chipID: chip.id, name: name)
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Anything the parse missed.")
+        }
+    }
+
+    /// Fix the macros for this log too — not just future parses.
+    private func reestimate(chipID: UUID, name: String) {
+        estimatingChipIDs.insert(chipID)
+        Task {
+            let (protein, calories) = await EntryParser.estimateMacros(for: name)
+            if let index = draft.chips.firstIndex(where: { $0.id == chipID }) {
+                draft.chips[index].proteinGrams = protein
+                draft.chips[index].calories = calories
+            }
+            estimatingChipIDs.remove(chipID)
         }
     }
 
     private var macroLine: String {
-        "≈ \(Int(draft.calories.rounded())) kcal · \(Int(draft.proteinGrams.rounded()))g protein"
+        estimatingChipIDs.isEmpty
+            ? "≈ \(Int(draft.calories.rounded())) kcal · \(Int(draft.proteinGrams.rounded()))g protein"
+            : "≈ updating estimate…"
     }
 
     private var chipGrid: some View {
@@ -559,6 +726,7 @@ private struct FoodConfirmView: View {
                     Text(chip.name)
                         .font(AppFont.ui(14, .medium))
                         .foregroundStyle(Palette.ink)
+                        .opacity(estimatingChipIDs.contains(chip.id) ? 0.4 : 1)
                     Button {
                         draft.chips.removeAll { $0.id == chip.id }
                     } label: {
@@ -569,6 +737,7 @@ private struct FoodConfirmView: View {
                             .background(Circle().fill(Color(hex: 0xEFEDE7)))
                     }
                     .buttonStyle(.plain)
+                    .accessibilityLabel("Remove \(chip.name)")
                 }
                 .padding(.horizontal, 13)
                 .padding(.vertical, 9)
@@ -578,6 +747,26 @@ private struct FoodConfirmView: View {
                     editingChip = chip
                 }
             }
+
+            Button {
+                addText = ""
+                addingItem = true
+            } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: "plus")
+                        .font(.system(size: 11, weight: .semibold))
+                    Text("add")
+                        .font(AppFont.ui(14, .medium))
+                }
+                .foregroundStyle(Palette.indigo)
+                .padding(.horizontal, 13)
+                .padding(.vertical, 9)
+                .background(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .strokeBorder(Color(hex: 0xDADCE8), style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
+                )
+            }
+            .buttonStyle(.plain)
         }
     }
 }

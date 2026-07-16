@@ -28,7 +28,11 @@ enum ClaudeError: Error, LocalizedError {
 }
 
 enum ClaudeClient {
+    /// Coach + daily insight — the product's voice
     static let model = "claude-sonnet-5"
+    /// Parsing + macro estimates — routine extraction, Haiku-grade.
+    /// (Haiku 4.5 doesn't take the effort parameter; it's fast by default.)
+    static let parseModel = "claude-haiku-4-5"
 
     /// Key lookup: scheme environment first (simulator dev), then a
     /// gitignored Secrets.plist in the bundle. Never hardcoded.
@@ -50,10 +54,9 @@ enum ClaudeClient {
     /// schema guarantees is valid.
     static func completeJSON(system: String, user: String, schema: [String: Any]) async throws -> Data {
         let text = try await send(body: [
-            "model": model,
+            "model": parseModel,
             "max_tokens": 2000,
             "output_config": [
-                "effort": "low",  // parsing is routine work; keep it fast
                 "format": ["type": "json_schema", "schema": schema],
             ],
             "system": system,

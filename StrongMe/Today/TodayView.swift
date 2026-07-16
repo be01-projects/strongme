@@ -14,22 +14,57 @@ import SwiftUI
 @Observable
 final class ToastCenter {
     private(set) var message: String?
+    private(set) var undoAction: (() -> Void)?
     private var hideTask: Task<Void, Never>?
 
-    func show(_ text: String) {
+    /// Forgiveness in one tap: pass `undo` and the toast carries an Undo
+    /// button (and lingers a little longer).
+    func show(_ text: String, undo: (() -> Void)? = nil) {
         hideTask?.cancel()
+        undoAction = undo
         withAnimation(.spring(duration: 0.32)) { message = text }
         hideTask = Task {
-            try? await Task.sleep(for: .seconds(2.1))
+            try? await Task.sleep(for: .seconds(undo == nil ? 2.1 : 4.5))
             guard !Task.isCancelled else { return }
             withAnimation(.spring(duration: 0.32)) { self.message = nil }
+            self.undoAction = nil
         }
+    }
+
+    func performUndo() {
+        let action = undoAction
+        undoAction = nil
+        hideTask?.cancel()
+        withAnimation(.spring(duration: 0.32)) { message = nil }
+        action?()
+        show("Undone")
     }
 }
 
 // MARK: - Today
 
+/// Thin wrapper that owns "which day is today": rebuilds the content (and
+/// its day-anchored queries) at day rollover, and refreshes Health data
+/// whenever the app returns to the foreground.
 struct TodayView: View {
+    @Environment(\.scenePhase) private var scenePhase
+    @Environment(HealthKitService.self) private var health
+
+    @State private var dayStart = Calendar.current.startOfDay(for: .now)
+
+    var body: some View {
+        TodayContent(dayStart: dayStart)
+            .id(dayStart)
+            .onChange(of: scenePhase) { _, phase in
+                guard phase == .active else { return }
+                let today = Calendar.current.startOfDay(for: .now)
+                if today != dayStart { dayStart = today }
+                Task { await health.refresh() }
+            }
+    }
+}
+
+struct TodayContent: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(HealthKitService.self) private var health
     @Environment(ToastCenter.self) private var toast
@@ -42,16 +77,20 @@ struct TodayView: View {
 
     @AppStorage("proteinTargetGrams") private var proteinTarget = 150.0
     @AppStorage("firstLaunchDate") private var firstLaunchTimestamp = 0.0
-    // Claude-written daily read, cached per day; rule-based fills the gaps
+    // Claude-written daily read; the stamp tracks day + data state so the
+    // read regenerates after new logs instead of going stale
     @AppStorage("dailyInsightText") private var dailyInsightText = ""
-    @AppStorage("dailyInsightDay") private var dailyInsightDay = ""
+    @AppStorage("dailyInsightStamp") private var dailyInsightStamp = ""
 
     @State private var captureRequest: CaptureRequest?
     @State private var showCoach = false
     @State private var showHistory = false
+    @State private var openMetric: Metric?
 
-    init() {
-        let dayStart = Calendar.current.startOfDay(for: .now)
+    let dayStart: Date
+
+    init(dayStart: Date) {
+        self.dayStart = dayStart
         _todaysFood = Query(filter: #Predicate<FoodEntry> { $0.date >= dayStart },
                             sort: \.date, order: .reverse)
     }
@@ -65,10 +104,17 @@ struct TodayView: View {
                     header
                     insightCard
                         .padding(.top, 20)
-                    StatGrid(snapshot: health.snapshot)
-                        .padding(.top, 16)
-                    ProteinCard(proteinToday: proteinToday, target: proteinTarget)
-                        .padding(.top, 11)
+                    StatGrid(snapshot: health.snapshot) { metric in
+                        openMetric = metric
+                    }
+                    .padding(.top, 16)
+                    Button {
+                        showHistory = true  // opens on today's entries — edit from there
+                    } label: {
+                        ProteinCard(proteinToday: proteinToday, target: proteinTarget)
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.top, 11)
                     usualRow
                         .padding(.top, 22)
                     reflectionSection
@@ -86,7 +132,7 @@ struct TodayView: View {
             )
 
             if let message = toast.message {
-                ToastView(message: message)
+                ToastView(message: message, onUndo: toast.undoAction != nil ? { toast.performUndo() } : nil)
                     .padding(.bottom, 118)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
@@ -101,12 +147,19 @@ struct TodayView: View {
         .sheet(isPresented: $showHistory) {
             HistorySheet()
         }
+        .sheet(item: $openMetric) { metric in
+            MetricSheet(metric: metric)
+        }
         .task {
             if firstLaunchTimestamp == 0 { firstLaunchTimestamp = Date.now.timeIntervalSince1970 }
             #if DEBUG
             // Scripted screenshots / UI tests
             if ProcessInfo.processInfo.arguments.contains("-open-coach") { showCoach = true }
             if ProcessInfo.processInfo.arguments.contains("-open-history") { showHistory = true }
+            if let metricArg = ProcessInfo.processInfo.arguments.first(where: { $0.hasPrefix("-open-metric-") }),
+               let metric = Metric(rawValue: String(metricArg.dropFirst("-open-metric-".count))) {
+                openMetric = metric
+            }
             #endif
             await health.requestAuthorization()
             await health.refresh()
@@ -114,21 +167,33 @@ struct TodayView: View {
         }
         .onChange(of: captureRequest) { _, newValue in
             if newValue == nil {
-                Task { await health.refresh() }
+                Task {
+                    await health.refresh()
+                    await refreshDailyInsight()
+                }
             }
+        }
+        .sensoryFeedback(.success, trigger: toast.message) { _, newValue in
+            newValue != nil
         }
     }
 
-    /// Generate the Claude daily read once per day, after Health data loads.
+    /// Day + data state — when either changes, the read regenerates.
+    private var insightStamp: String {
+        let day = Date.now.formatted(.iso8601.year().month().day())
+        let weight = Int(health.snapshot.latestWeight ?? 0)
+        return "\(day)|\(todaysFood.count)|\(weight)|\(Int(proteinTarget))"
+    }
+
     private func refreshDailyInsight() async {
-        let todayKey = Date.now.formatted(.iso8601.year().month().day())
-        guard dailyInsightDay != todayKey, ClaudeClient.isConfigured else { return }
+        guard dailyInsightStamp != insightStamp, ClaudeClient.isConfigured else { return }
+        let stamp = insightStamp
         let summary = await TrendSummary.build(
             context: modelContext, health: health, proteinTarget: proteinTarget
         )
         if let insight = await DailyInsight.generate(summary: summary) {
             dailyInsightText = insight
-            dailyInsightDay = todayKey
+            dailyInsightStamp = stamp
         }
     }
 
@@ -181,8 +246,10 @@ struct TodayView: View {
     // MARK: Insight
 
     private var insightText: String {
+        // Any cached read from today is better than the rule-based fallback,
+        // even mid-regeneration after a new log
         let todayKey = Date.now.formatted(.iso8601.year().month().day())
-        if dailyInsightDay == todayKey, !dailyInsightText.isEmpty {
+        if dailyInsightStamp.hasPrefix(todayKey), !dailyInsightText.isEmpty {
             return dailyInsightText
         }
         return InsightEngine.dailyRead(
@@ -262,6 +329,15 @@ struct TodayView: View {
                             .cardBackground(cornerRadius: 15)
                         }
                         .buttonStyle(.plain)
+                        .contextMenu {
+                            // One-off meals shouldn't squat in prime real estate
+                            Button(role: .destructive) {
+                                modelContext.delete(usual)
+                                toast.show("Removed from usuals")
+                            } label: {
+                                Label("Remove from usuals", systemImage: "trash")
+                            }
+                        }
                     }
                 }
                 .padding(.vertical, 4)
@@ -272,13 +348,17 @@ struct TodayView: View {
     }
 
     private func quickLog(_ usual: UsualMeal) {
-        modelContext.insert(FoodEntry(mealLabel: LocalFallbackParser.inferMeal(),
-                                      items: usual.items,
-                                      rawText: usual.name))
+        let entry = FoodEntry(mealLabel: LocalFallbackParser.inferMeal(),
+                              items: usual.items,
+                              rawText: usual.name)
+        modelContext.insert(entry)
         usual.timesLogged += 1
         usual.lastUsed = .now
         usual.isSeed = false
-        toast.show("Logged · +\(Int(usual.proteinGrams.rounded()))g protein")
+        toast.show("Logged · +\(Int(usual.proteinGrams.rounded()))g protein") { [modelContext] in
+            modelContext.delete(entry)
+            usual.timesLogged = max(0, usual.timesLogged - 1)
+        }
     }
 
     // MARK: Reflection
@@ -312,22 +392,37 @@ struct TodayView: View {
             .buttonStyle(.plain)
 
             ForEach(reflections.prefix(2)) { entry in
-                HStack(alignment: .firstTextBaseline, spacing: 11) {
-                    Text(relativeDay(entry.date))
-                        .font(AppFont.ui(10.5, .bold))
-                        .kerning(0.4)
-                        .foregroundStyle(Palette.muted)
-                        .frame(minWidth: 56, alignment: .leading)
-                    Text("“\(entry.text)”")
-                        .font(AppFont.coach(13.5))
-                        .italic()
-                        .foregroundStyle(Color(hex: 0x3A3F52))
-                        .lineSpacing(2)
+                Button {
+                    captureRequest = CaptureRequest(
+                        mode: .typing,
+                        prefill: entry.text,
+                        targetDate: entry.date,
+                        replacingReflectionID: entry.persistentModelID
+                    )
+                } label: {
+                    HStack(alignment: .firstTextBaseline, spacing: 11) {
+                        Text(relativeDay(entry.date))
+                            .font(AppFont.ui(10.5, .bold))
+                            .kerning(0.4)
+                            .foregroundStyle(Palette.muted)
+                            .frame(minWidth: 56, alignment: .leading)
+                        Text("“\(entry.text)”")
+                            .font(AppFont.coach(13.5))
+                            .italic()
+                            .foregroundStyle(Color(hex: 0x3A3F52))
+                            .lineSpacing(2)
+                            .multilineTextAlignment(.leading)
+                        Spacer(minLength: 0)
+                        Image(systemName: "pencil")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(Palette.muted.opacity(0.6))
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 11)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .cardBackground(cornerRadius: 14)
                 }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 11)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .cardBackground(cornerRadius: 14)
+                .buttonStyle(.plain)
             }
         }
     }
@@ -344,6 +439,7 @@ struct TodayView: View {
 
 struct ToastView: View {
     let message: String
+    var onUndo: (() -> Void)?
 
     var body: some View {
         HStack(spacing: 9) {
@@ -358,6 +454,18 @@ struct ToastView: View {
             Text(message)
                 .font(AppFont.ui(13.5, .semibold))
                 .foregroundStyle(.white)
+
+            if let onUndo {
+                Rectangle()
+                    .fill(.white.opacity(0.25))
+                    .frame(width: 1, height: 16)
+                Button(action: onUndo) {
+                    Text("Undo")
+                        .font(AppFont.ui(13.5, .bold))
+                        .foregroundStyle(Palette.indigoLight)
+                }
+                .buttonStyle(.plain)
+            }
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 12)
