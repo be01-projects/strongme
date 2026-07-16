@@ -85,6 +85,7 @@ struct TodayContent: View {
     @State private var captureRequest: CaptureRequest?
     @State private var showCoach = false
     @State private var showHistory = false
+    @State private var showProtein = false
     @State private var openMetric: Metric?
 
     let dayStart: Date
@@ -109,7 +110,7 @@ struct TodayContent: View {
                     }
                     .padding(.top, 16)
                     Button {
-                        showHistory = true  // opens on today's entries — edit from there
+                        showProtein = true  // "what have I eaten today?"
                     } label: {
                         ProteinCard(proteinToday: proteinToday, target: proteinTarget)
                     }
@@ -150,12 +151,16 @@ struct TodayContent: View {
         .sheet(item: $openMetric) { metric in
             MetricSheet(metric: metric)
         }
+        .sheet(isPresented: $showProtein) {
+            ProteinSheet()
+        }
         .task {
             if firstLaunchTimestamp == 0 { firstLaunchTimestamp = Date.now.timeIntervalSince1970 }
             #if DEBUG
             // Scripted screenshots / UI tests
             if ProcessInfo.processInfo.arguments.contains("-open-coach") { showCoach = true }
             if ProcessInfo.processInfo.arguments.contains("-open-history") { showHistory = true }
+            if ProcessInfo.processInfo.arguments.contains("-open-protein") { showProtein = true }
             if let metricArg = ProcessInfo.processInfo.arguments.first(where: { $0.hasPrefix("-open-metric-") }),
                let metric = Metric(rawValue: String(metricArg.dropFirst("-open-metric-".count))) {
                 openMetric = metric

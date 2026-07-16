@@ -47,6 +47,9 @@ Build order follows the spec's de-risk sequence.*
 - [x] Dynamic Type via relativeTo anchors; VoiceOver labels on icon buttons
 - [x] Long-press to remove a usual; correction memory dedup
 
+## ✅ Post-2.5 protein sheet *(2026-07-15)*
+- [x] Protein bar opens a focused today's-meals view (edit/delete, 7-day bars, coach)
+
 ## ⏳ Milestone 3 — logging without opening the app
 - [ ] App Intents foundation ("log my lunch", "log a reflection") — Siri + Shortcuts
 - [ ] Action Button support (hold → talk → parser)

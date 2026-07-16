@@ -4,6 +4,12 @@
 
 ---
 
+# Post-2.5 — protein sheet
+
+Tapping the protein bar now answers "what have I eaten today?" directly (`ProteinSheet.swift`): today's meals with per-meal protein and time, edit/delete in place (same replace-on-confirm loop), a "+ Log a meal" shortcut, 7-day protein bars with a target tick, and the coach one tap deeper ("Am I on track with protein?"). Previously it opened History-on-today, which buried the answer under the month grid. Debug arg: `-open-protein`.
+
+---
+
 # Post-2.5 — button-up batch
 
 1. **AccentColor → indigo** — alerts, menus, and selection chrome no longer flash iOS blue.
