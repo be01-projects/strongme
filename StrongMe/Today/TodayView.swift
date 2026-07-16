@@ -231,12 +231,15 @@ struct TodayContent: View {
         .padding(.top, 14)
     }
 
+    @AppStorage("userName") private var userName = ""
+
     private var greeting: String {
-        switch Calendar.current.component(.hour, from: .now) {
-        case 4..<12: "Good morning."
-        case 12..<17: "Good afternoon."
-        default: "Good evening."
+        let salutation = switch Calendar.current.component(.hour, from: .now) {
+        case 4..<12: "Good morning"
+        case 12..<17: "Good afternoon"
+        default: "Good evening"
         }
+        return userName.isEmpty ? "\(salutation)." : "\(salutation), \(userName)."
     }
 
     private var dateLine: String {
@@ -279,6 +282,9 @@ struct TodayContent: View {
                     .foregroundStyle(Palette.coachInk)
                     .lineSpacing(5)
                     .multilineTextAlignment(.leading)
+                    // the read updating should feel like rereading, not a glitch
+                    .contentTransition(.opacity)
+                    .animation(.easeInOut(duration: 0.4), value: insightText)
 
                 HStack(spacing: 5) {
                     Text("Ask your coach")
@@ -315,7 +321,7 @@ struct TodayContent: View {
 
             ScrollView(.horizontal) {
                 HStack(spacing: 9) {
-                    ForEach(usuals.prefix(6)) { usual in
+                    ForEach(timeAwareUsuals) { usual in
                         Button {
                             quickLog(usual)
                         } label: {
@@ -350,6 +356,21 @@ struct TodayContent: View {
             }
             .scrollIndicators(.hidden)
         }
+    }
+
+    /// Usuals for the meal it currently is float to the front — breakfasts
+    /// in the morning, dinners at night. Frequency breaks ties.
+    private var timeAwareUsuals: [UsualMeal] {
+        let currentMeal = LocalFallbackParser.inferMeal()
+        return usuals.sorted { a, b in
+            let aMatches = a.mealLabel == currentMeal
+            let bMatches = b.mealLabel == currentMeal
+            if aMatches != bMatches { return aMatches }
+            if a.timesLogged != b.timesLogged { return a.timesLogged > b.timesLogged }
+            return a.lastUsed > b.lastUsed
+        }
+        .prefix(6)
+        .map { $0 }
     }
 
     private func quickLog(_ usual: UsualMeal) {

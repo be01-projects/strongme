@@ -4,6 +4,18 @@
 
 ---
 
+# Post-2.5 — smart memory slice
+
+The spec's compounding promise — "the app gets easier the longer you use it" — made concrete:
+
+1. **Usuals learn their meal.** `UsualMeal.mealLabel` (with a one-time backfill for pre-existing seeds); each confirmed log updates it, recency wins.
+2. **Time-aware chips.** The "your usual" row floats the current meal's usuals to the front — breakfasts in the morning, dinners at night; frequency breaks ties.
+3. **"Log my usual breakfast."** Recognized locally (no API call) when the utterance is just the command; pre-fills your top usual for that meal in the confirm sheet ("Your usual — tweak anything before logging"). No usual saved yet → a gentle notice. "log breakfast: eggs and toast" still parses normally.
+4. **"Call me Steve."** New parser kind (`name`, explicit forms only — "i'm exhausted" stays a reflection); confirm card notes the name never leaves the device; greeting becomes "Good evening, Steve."
+5. **Feel:** a light haptic when the silence detector files your entry (feedback without looking), and the daily read crossfades when it regenerates instead of snapping.
+
+---
+
 # Post-2.5 — protein sheet
 
 Tapping the protein bar now answers "what have I eaten today?" directly (`ProteinSheet.swift`): today's meals with per-meal protein and time, edit/delete in place (same replace-on-confirm loop), a "+ Log a meal" shortcut, 7-day protein bars with a target tick, and the coach one tap deeper ("Am I on track with protein?"). Previously it opened History-on-today, which buried the answer under the month grid. Debug arg: `-open-protein`.

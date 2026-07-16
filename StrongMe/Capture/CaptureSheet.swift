@@ -9,6 +9,7 @@
 import HealthKit
 import SwiftData
 import SwiftUI
+import UIKit
 
 // MARK: - Entry point / request
 
@@ -86,6 +87,7 @@ struct CaptureSheet: View {
         case confirmFood(FoodDraft)
         case confirmWeight(value: Double, unit: String, raw: String)
         case confirmTarget(grams: Double)
+        case confirmName(String)
         case reflectionSaved(text: String, tags: [String])
         case care
         case notice(String)
@@ -135,6 +137,8 @@ struct CaptureSheet: View {
             weightConfirmView(value: value, unit: unit, raw: raw)
         case .confirmTarget(let grams):
             targetConfirmView(grams: grams)
+        case .confirmName(let name):
+            nameConfirmView(name: name)
         case .reflectionSaved(let text, let tags):
             reflectionView(text: text, tags: tags)
         case .care:
@@ -189,16 +193,53 @@ struct CaptureSheet: View {
             phase = .typing
             return
         }
+        // "I caught that" — matters most when the silence detector fired
+        // and the user isn't looking at the screen
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
         parse(text)
     }
 
     private func parse(_ text: String) {
+        // "Log my usual breakfast" — smart memory beats a round trip. Only
+        // when the whole utterance is the command; "log breakfast: eggs and
+        // toast" still goes to the parser.
+        if let meal = usualRequestMeal(in: text) {
+            recallUsual(for: meal, rawText: text)
+            return
+        }
+
         phase = .parsing
         Task {
             let corrections = recentCorrections()
             let (entry, source) = await EntryParser.parse(text, corrections: corrections)
             route(entry, source: source, rawText: text)
         }
+    }
+
+    private func usualRequestMeal(in text: String) -> String? {
+        let normalized = text.lowercased()
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: ".!"))
+        let pattern = /^(?:log|i (?:had|ate)|had)?\s*(?:my\s+)?(?:usual\s+)?(breakfast|lunch|dinner|snack)(?:\s+please)?$/
+        guard let match = normalized.firstMatch(of: pattern) else { return nil }
+        // A bare "breakfast" is ambiguous; require a verb or "usual"
+        guard normalized != String(match.1) else { return nil }
+        return String(match.1)
+    }
+
+    private func recallUsual(for meal: String, rawText: String) {
+        let all = (try? modelContext.fetch(FetchDescriptor<UsualMeal>())) ?? []
+        let candidate = all
+            .filter { $0.mealLabel == meal }
+            .max { ($0.timesLogged, $0.lastUsed) < ($1.timesLogged, $1.lastUsed) }
+        guard let usual = candidate else {
+            phase = .notice("No usual \(meal) saved yet — log it once and I'll remember it.")
+            return
+        }
+        let chips = usual.items.map {
+            ChipItem(name: $0.name, originalName: $0.name, proteinGrams: $0.proteinGrams, calories: $0.calories)
+        }
+        phase = .confirmFood(FoodDraft(meal: meal, chips: chips, rawText: rawText, source: .usualRecall))
     }
 
     private func route(_ entry: ParsedEntry, source: ParseSource, rawText: String) {
@@ -224,6 +265,14 @@ struct CaptureSheet: View {
                 return
             }
             phase = .confirmTarget(grams: entry.targetProteinG)
+
+        case .name:
+            let name = entry.userName.trimmingCharacters(in: .whitespaces)
+            guard !name.isEmpty else {
+                phase = .notice("I didn't catch the name. Try “call me Steve”.")
+                return
+            }
+            phase = .confirmName(name)
 
         case .reflection, .other:
             deleteReplacedEntries()
@@ -519,6 +568,42 @@ struct CaptureSheet: View {
         }
     }
 
+    // MARK: Name confirm
+
+    private func nameConfirmView(name: String) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("Heard you say")
+                .font(AppFont.ui(12, .medium))
+                .foregroundStyle(Palette.muted)
+            Text("What should I call you?")
+                .font(AppFont.coach(19))
+                .foregroundStyle(Palette.ink)
+                .padding(.top, 4)
+
+            Text(name)
+                .font(AppFont.coach(30, .medium))
+                .foregroundStyle(Palette.indigo)
+                .padding(.top, 16)
+
+            Text("Just for the greeting — it never leaves the device.")
+                .font(AppFont.ui(11.5, .medium))
+                .foregroundStyle(Palette.muted)
+                .padding(.top, 10)
+                .padding(.bottom, 18)
+
+            Button {
+                let previous = UserDefaults.standard.string(forKey: "userName") ?? ""
+                UserDefaults.standard.set(name, forKey: "userName")
+                toast.show("Nice to meet you, \(name)") {
+                    UserDefaults.standard.set(previous, forKey: "userName")
+                }
+                dismiss()
+            } label: {
+                Text("That's me").confirmButtonStyle()
+            }
+        }
+    }
+
     // MARK: Reflection saved
 
     private func reflectionView(text: String, tags: [String]) -> some View {
@@ -650,9 +735,7 @@ private struct FoodConfirmView: View {
 
             chipGrid
 
-            Text(draft.source == .onDeviceFallback
-                 ? "Rough on-device guess (no API key set) — tap a chip to fix it, × to remove, ＋ if something's missing."
-                 : "Tap a chip to fix it, × to remove, ＋ if something's missing — it remembers your corrections next time.")
+            Text(editNote)
                 .font(AppFont.ui(11.5, .medium))
                 .foregroundStyle(Palette.muted)
                 .padding(.top, 10)
@@ -717,6 +800,17 @@ private struct FoodConfirmView: View {
         estimatingChipIDs.isEmpty
             ? "≈ \(Int(draft.calories.rounded())) kcal · \(Int(draft.proteinGrams.rounded()))g protein"
             : "≈ updating estimate…"
+    }
+
+    private var editNote: String {
+        switch draft.source {
+        case .onDeviceFallback:
+            "Rough on-device guess (no API key set) — tap a chip to fix it, × to remove, ＋ if something's missing."
+        case .usualRecall:
+            "Your usual — tweak anything before logging, or just confirm."
+        case .claude:
+            "Tap a chip to fix it, × to remove, ＋ if something's missing — it remembers your corrections next time."
+        }
     }
 
     private var chipGrid: some View {
@@ -887,8 +981,9 @@ enum UsualLearner {
             existing.lastUsed = .now
             existing.items = items
             existing.isSeed = false
+            if meal != "unknown" { existing.mealLabel = meal }  // recency wins
         } else {
-            context.insert(UsualMeal(name: name, items: items, timesLogged: 1))
+            context.insert(UsualMeal(name: name, items: items, timesLogged: 1, mealLabel: meal))
         }
     }
 
