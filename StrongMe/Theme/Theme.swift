@@ -118,22 +118,61 @@ enum AppFont {
     }
 }
 
+// MARK: - UI style (the A/B: soft cards vs borderless journal)
+
+/// Two complete looks over the same layout and interactions, switchable in
+/// the Appearance sheet while we live with both and pick one.
+/// - `card`: the prototype's look — surfaces, hairline borders, soft shadows.
+/// - `journal`: editorial — no card chrome; serif numerals, thin rules,
+///   ghost outlines only where tappability needs affordance.
+enum UIStyle: String {
+    case card, journal
+
+    static let storageKey = "uiStyle"
+}
+
 // MARK: - Shared card chrome
 
 struct CardBackground: ViewModifier {
     var cornerRadius: CGFloat = 20
 
+    @AppStorage(UIStyle.storageKey) private var styleRaw = UIStyle.card.rawValue
+
     func body(content: Content) -> some View {
-        content
-            .background(
-                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .fill(Palette.surface)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .strokeBorder(Palette.hairline, lineWidth: 1)
-            )
-            .cardShadow()
+        if styleRaw == UIStyle.journal.rawValue {
+            // Ghost: presence without weight — enough affordance to touch
+            content
+                .background(
+                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                        .fill(Palette.surface.opacity(0.45))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                        .strokeBorder(Palette.hairline, lineWidth: 1)
+                )
+        } else {
+            content
+                .background(
+                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                        .fill(Palette.surface)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                        .strokeBorder(Palette.hairline, lineWidth: 1)
+                )
+                .cardShadow()
+        }
+    }
+}
+
+/// A thin editorial rule — the journal style's structural element
+struct JournalRule: View {
+    var color: Color = Palette.hairline
+
+    var body: some View {
+        Rectangle()
+            .fill(color)
+            .frame(height: 1)
     }
 }
 

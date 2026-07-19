@@ -68,6 +68,9 @@ Build order follows the spec's de-risk sequence.*
 - [ ] Forgiving streaks ("trained 3× this week", graceful recovery — never loss-aversion)
 - [ ] Protein, training frequency, weight trend, sleep as the four lenses
 
+## 🔬 In trial
+- [ ] UI style A/B: "Soft cards" vs "Journal" (Aa button) — live with both, land one, remove the picker
+
 ## Backlog (unscheduled)
 - [ ] Dark-mode palette pass (currently forced light)
 - [ ] The single gentle daily prompt (max one, well-timed, easily off)

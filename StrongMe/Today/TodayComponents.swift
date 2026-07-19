@@ -110,7 +110,56 @@ struct StatCard: View {
     let sub: String
     var subHighlighted = false
 
+    @AppStorage(UIStyle.storageKey) private var styleRaw = UIStyle.card.rawValue
+
     var body: some View {
+        if styleRaw == UIStyle.journal.rawValue {
+            journalBody
+        } else {
+            cardBody
+        }
+    }
+
+    /// Journal: a ledger entry — small-caps label, oversized serif numeral,
+    /// a thin rule underneath. Data set like type, not boxed like a widget.
+    private var journalBody: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 6) {
+                EyebrowLabel(text: label)
+                Spacer()
+                Text("AUTO")
+                    .font(AppFont.ui(10, .semibold))
+                    .kerning(0.4)
+                    .foregroundStyle(Color(hex: 0xA9AAB2))
+            }
+
+            HStack(alignment: .firstTextBaseline, spacing: 3) {
+                Text(value)
+                    .font(AppFont.coach(31, .medium))
+                    .foregroundStyle(Palette.ink)
+                if let valueSuffix {
+                    Text(valueSuffix)
+                        .font(AppFont.ui(13, .medium))
+                        .foregroundStyle(Palette.muted)
+                }
+            }
+            .padding(.top, 8)
+
+            Text(sub)
+                .font(AppFont.ui(12, .medium))
+                .foregroundStyle(subHighlighted ? Palette.indigo : Palette.muted)
+                .lineLimit(1)
+                .padding(.top, 3)
+
+            JournalRule()
+                .padding(.top, 13)
+        }
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
+    }
+
+    private var cardBody: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 6) {
                 iconView
@@ -171,12 +220,63 @@ struct ProteinCard: View {
     let proteinToday: Double
     let target: Double
 
+    @AppStorage(UIStyle.storageKey) private var styleRaw = UIStyle.card.rawValue
+
     private var progress: Double {
         guard target > 0 else { return 0 }
         return min(1, proteinToday / target)
     }
 
     var body: some View {
+        if styleRaw == UIStyle.journal.rawValue {
+            journalBody
+        } else {
+            cardBody
+        }
+    }
+
+    /// Journal: the number is the hero — serif figures over a thin apricot
+    /// thread with a target tick, no container.
+    private var journalBody: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .firstTextBaseline) {
+                EyebrowLabel(text: "Protein", color: Palette.apricot)
+                Spacer()
+            }
+
+            HStack(alignment: .firstTextBaseline, spacing: 4) {
+                Text("\(Int(proteinToday.rounded()))")
+                    .font(AppFont.coach(31, .medium))
+                    .foregroundStyle(Palette.ink)
+                Text("of \(Int(target))g")
+                    .font(AppFont.ui(13, .medium))
+                    .foregroundStyle(Palette.muted)
+                Spacer()
+                Text(hint)
+                    .font(AppFont.ui(11.5, .medium))
+                    .foregroundStyle(Palette.muted)
+                    .multilineTextAlignment(.trailing)
+            }
+            .padding(.top, 8)
+
+            GeometryReader { geometry in
+                ZStack(alignment: .leading) {
+                    Rectangle().fill(Color(hex: 0xE7E5DD))
+                    Rectangle()
+                        .fill(Palette.apricot)
+                        .frame(width: max(3, geometry.size.width * progress))
+                        .animation(.spring(duration: 0.9), value: progress)
+                }
+            }
+            .frame(height: 3)
+            .padding(.top, 12)
+        }
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
+    }
+
+    private var cardBody: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .firstTextBaseline) {
                 EyebrowLabel(text: "Protein")

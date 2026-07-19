@@ -4,6 +4,18 @@
 
 ---
 
+# UI style A/B — "Soft cards" vs "Journal"
+
+An alternate visual style, switchable live from the Aa button in the header (temporary chrome — one style wins and the picker goes away). Same layout, same interactions; only the visual language changes (`UIStyle` in Theme.swift, persisted in `uiStyle`).
+
+**Journal**: the editorial answer to "cards in a grid is every health app." No containers — the daily read is an open serif paragraph over a hairline rule; the stat grid becomes a ruled ledger with oversized Fraunces numerals; protein is a serif figure over a 3pt apricot thread; chips and rows keep ghost outlines (hairline, no fill weight, no shadow) purely for tap affordance. Leans into the one thing that's distinctly ours — the serif voice — and turns data into typography.
+
+**Implementation**: `cardBackground` branches per style (ghost in journal), so every sheet inherits automatically; StatCard/ProteinCard/insight/reflection-prompt have explicit journal variants since they're the centerpiece. Switching animates via @AppStorage — no restart.
+
+Verified both styles on simulator (sim gotcha for scripted testing: cfprefsd caches the prefs domain, so behind-its-back plutil writes need a `launchctl stop com.apple.cfprefsd.xpc.daemon` to stick).
+
+---
+
 # Milestone 3, slice 1a — code-review fixes
 
 A high-effort review of the slice (8 finder angles → 39 candidates → 10 verified findings) surfaced one theme: the Siri path had skipped guards the in-app path earned. All ten fixed:

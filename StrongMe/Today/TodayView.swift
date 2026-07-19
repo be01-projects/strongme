@@ -160,6 +160,9 @@ struct TodayContent: View {
         .sheet(isPresented: $showCare) {
             CareSheet()
         }
+        .sheet(isPresented: $showAppearance) {
+            AppearanceSheet()
+        }
         .onChange(of: pendingActions.action) { _, _ in
             consumePendingIntentAction()
         }
@@ -239,22 +242,41 @@ struct TodayContent: View {
                     .foregroundStyle(Palette.muted)
             }
             Spacer()
-            Button {
-                showHistory = true
-            } label: {
-                Image(systemName: "calendar")
-                    .font(.system(size: 17, weight: .medium))
-                    .foregroundStyle(Palette.ink)
-                    .frame(width: 42, height: 42)
-                    .cardBackground(cornerRadius: 14)
+            HStack(spacing: 8) {
+                // Temporary while we A/B the two looks — removed once we land
+                Button {
+                    showAppearance = true
+                } label: {
+                    Image(systemName: "textformat")
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundStyle(Palette.muted)
+                        .frame(width: 42, height: 42)
+                        .cardBackground(cornerRadius: 14)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Appearance")
+
+                Button {
+                    showHistory = true
+                } label: {
+                    Image(systemName: "calendar")
+                        .font(.system(size: 17, weight: .medium))
+                        .foregroundStyle(Palette.ink)
+                        .frame(width: 42, height: 42)
+                        .cardBackground(cornerRadius: 14)
+                }
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
             .padding(.top, 6)
         }
         .padding(.top, 14)
     }
 
     @AppStorage("userName") private var userName = ""
+    @AppStorage(UIStyle.storageKey) private var styleRaw = UIStyle.card.rawValue
+    @State private var showAppearance = false
+
+    private var isJournal: Bool { styleRaw == UIStyle.journal.rawValue }
 
     private var greeting: String {
         let salutation = switch Calendar.current.component(.hour, from: .now) {
@@ -301,9 +323,9 @@ struct TodayContent: View {
                     EyebrowLabel(text: "Today's read", color: Palette.indigo)
                 }
                 Text(markdown(insightText))
-                    .font(AppFont.coach(18.5))
+                    .font(AppFont.coach(isJournal ? 21 : 18.5))
                     .foregroundStyle(Palette.coachInk)
-                    .lineSpacing(5)
+                    .lineSpacing(isJournal ? 6 : 5)
                     .multilineTextAlignment(.leading)
                     // the read updating should feel like rereading, not a glitch
                     .contentTransition(.opacity)
@@ -317,11 +339,23 @@ struct TodayContent: View {
                 .font(AppFont.ui(12.5, .semibold))
                 .foregroundStyle(Palette.indigo)
                 .padding(.top, 3)
+
+                if isJournal {
+                    JournalRule(color: Color(hex: 0xDDDCE8))
+                        .padding(.top, 14)
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(20)
-            .background(RoundedRectangle(cornerRadius: 22, style: .continuous).fill(Palette.insightGradient))
-            .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).strokeBorder(Palette.insightBorder))
+            .padding(isJournal ? EdgeInsets(top: 6, leading: 0, bottom: 0, trailing: 0)
+                               : EdgeInsets(top: 20, leading: 20, bottom: 20, trailing: 20))
+            .background(
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .fill(isJournal ? AnyShapeStyle(Color.clear) : AnyShapeStyle(Palette.insightGradient))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .strokeBorder(isJournal ? Color.clear : Palette.insightBorder)
+            )
         }
         .buttonStyle(.plain)
     }
@@ -424,7 +458,7 @@ struct TodayContent: View {
                     VStack(alignment: .leading, spacing: 4) {
                         EyebrowLabel(text: "Reflection", color: Palette.indigo)
                         Text("How's today feeling?")
-                            .font(AppFont.coach(18))
+                            .font(AppFont.coach(isJournal ? 19 : 18))
                             .foregroundStyle(Palette.coachInk)
                     }
                     Spacer()
@@ -432,14 +466,25 @@ struct TodayContent: View {
                         .font(.system(size: 15, weight: .medium))
                         .foregroundStyle(Palette.indigo)
                         .frame(width: 34, height: 34)
-                        .background(Circle().fill(.white))
-                        .cardShadow()
+                        .background(
+                            Circle()
+                                .fill(isJournal ? AnyShapeStyle(Color.clear) : AnyShapeStyle(Color.white))
+                        )
+                        .overlay(Circle().strokeBorder(isJournal ? Palette.hairline : .clear))
+                        .shadow(color: isJournal ? .clear : Palette.ink.opacity(0.05), radius: 1, y: 1)
+                        .shadow(color: isJournal ? .clear : Palette.ink.opacity(0.06), radius: 12, y: 8)
                 }
-                .padding(.horizontal, 18)
-                .padding(.vertical, 16)
+                .padding(.horizontal, isJournal ? 0 : 18)
+                .padding(.vertical, isJournal ? 6 : 16)
                 .frame(maxWidth: .infinity)
-                .background(RoundedRectangle(cornerRadius: 20, style: .continuous).fill(Palette.insightGradient))
-                .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).strokeBorder(Palette.insightBorder))
+                .background(
+                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                        .fill(isJournal ? AnyShapeStyle(Color.clear) : AnyShapeStyle(Palette.insightGradient))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                        .strokeBorder(isJournal ? Color.clear : Palette.insightBorder)
+                )
             }
             .buttonStyle(.plain)
 
