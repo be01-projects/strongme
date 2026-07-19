@@ -203,36 +203,21 @@ struct CaptureSheet: View {
         // "Log my usual breakfast" — smart memory beats a round trip. Only
         // when the whole utterance is the command; "log breakfast: eggs and
         // toast" still goes to the parser.
-        if let meal = usualRequestMeal(in: text) {
+        if let meal = EntryLogger.usualRequestMeal(in: text) {
             recallUsual(for: meal, rawText: text)
             return
         }
 
         phase = .parsing
         Task {
-            let corrections = recentCorrections()
+            let corrections = EntryLogger.recentCorrections(context: modelContext)
             let (entry, source) = await EntryParser.parse(text, corrections: corrections)
             route(entry, source: source, rawText: text)
         }
     }
 
-    private func usualRequestMeal(in text: String) -> String? {
-        let normalized = text.lowercased()
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .trimmingCharacters(in: CharacterSet(charactersIn: ".!"))
-        let pattern = /^(?:log|i (?:had|ate)|had)?\s*(?:my\s+)?(?:usual\s+)?(breakfast|lunch|dinner|snack)(?:\s+please)?$/
-        guard let match = normalized.firstMatch(of: pattern) else { return nil }
-        // A bare "breakfast" is ambiguous; require a verb or "usual"
-        guard normalized != String(match.1) else { return nil }
-        return String(match.1)
-    }
-
     private func recallUsual(for meal: String, rawText: String) {
-        let all = (try? modelContext.fetch(FetchDescriptor<UsualMeal>())) ?? []
-        let candidate = all
-            .filter { $0.mealLabel == meal }
-            .max { ($0.timesLogged, $0.lastUsed) < ($1.timesLogged, $1.lastUsed) }
-        guard let usual = candidate else {
+        guard let usual = EntryLogger.topUsual(for: meal, context: modelContext) else {
             phase = .notice("No usual \(meal) saved yet — log it once and I'll remember it.")
             return
         }
@@ -306,9 +291,10 @@ struct CaptureSheet: View {
         let items = draft.chips.map {
             FoodItemRecord(name: $0.name, proteinGrams: $0.proteinGrams, calories: $0.calories)
         }
-        let entry = FoodEntry(date: entryDate, mealLabel: draft.meal, items: items, rawText: draft.rawText)
-        modelContext.insert(entry)
-        UsualLearner.record(items: items, meal: draft.meal, context: modelContext)
+        let entry = EntryLogger.saveFood(
+            items: items, meal: draft.meal, rawText: draft.rawText,
+            date: entryDate, context: modelContext
+        )
 
         toast.show("Logged · +\(Int(draft.proteinGrams.rounded()))g protein") { [modelContext] in
             modelContext.delete(entry)
@@ -359,13 +345,6 @@ struct CaptureSheet: View {
            let entry = modelContext.model(for: reflectionID) as? ReflectionEntry {
             modelContext.delete(entry)
         }
-    }
-
-    private func recentCorrections() -> [(String, String)] {
-        var descriptor = FetchDescriptor<FoodCorrection>(sortBy: [SortDescriptor(\.date, order: .reverse)])
-        descriptor.fetchLimit = 10
-        let fixes = (try? modelContext.fetch(descriptor)) ?? []
-        return fixes.map { ($0.original, $0.corrected) }
     }
 
     private func trimmed(_ value: Double) -> String {
@@ -646,32 +625,8 @@ struct CaptureSheet: View {
 
     private var careView: some View {
         VStack(alignment: .leading, spacing: 0) {
-            VStack(alignment: .leading, spacing: 13) {
-                Circle()
-                    .fill(.white)
-                    .frame(width: 36, height: 36)
-                    .overlay(
-                        Image(systemName: "heart")
-                            .font(.system(size: 16))
-                            .foregroundStyle(Palette.careHeart)
-                    )
-                    .cardShadow()
-
-                Text("That sounds really heavy — I'm glad you put it into words. This isn't something to log or fix with a number, and you don't have to carry it on your own.")
-                    .font(AppFont.coach(17))
-                    .foregroundStyle(Palette.coachInk)
-                    .lineSpacing(4)
-
-                Text("Talking to someone you trust, or a mental health professional, can genuinely help. In the U.S. you can call or text 988 (Suicide & Crisis Lifeline) any time; elsewhere, findahelpline.com lists local support.")
-                    .font(AppFont.ui(13.5, .medium))
-                    .foregroundStyle(Palette.muted)
-                    .lineSpacing(3)
-            }
-            .padding(20)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(RoundedRectangle(cornerRadius: 20, style: .continuous).fill(Palette.careGradient))
-            .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).strokeBorder(Palette.careBorder))
-            .padding(.bottom, 14)
+            CareCard()
+                .padding(.bottom, 14)
 
             Button { dismiss() } label: {
                 Text("Okay").confirmButtonStyle()

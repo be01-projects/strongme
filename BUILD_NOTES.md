@@ -4,6 +4,20 @@
 
 ---
 
+# Milestone 3, slice 1 — App Intents foundation
+
+"The best logging never opens the app." Siri, Shortcuts, and the Action Button now funnel into the same parser and stores as the talk control (`Intents/AppIntents.swift`):
+
+- **`LogEntryIntent`** — "Hey Siri, log food in StrongMe" → Siri asks "What would you like to log?" → the sentence runs through the usual-recall shortcut, then the Claude parser (Haiku), and files food / weight / reflection / target / name. **Optimistic logging**: Siri's reply says exactly what was understood ("Logged: 2 eggs, toast — about 25 grams of protein"), with a chip snippet under the dialog; History/Undo in-app are the correction loop.
+- **`LogUsualIntent`** — "Log my usual breakfast in StrongMe", fully hands-free: the meal is an enum in the Siri phrase itself, no follow-up question, zero API calls.
+- **`TalkIntent`** — "Talk to StrongMe" / the Action Button: opens the app straight into the listening sheet (verified via the pending-flag path).
+- **The distress guardrail survives the shortcut path**: a concerning entry via Siri is never logged and never gets a banner — the app opens to the full care response (`CareCard`, now shared between the capture flow and a standalone sheet).
+- Plumbing: `AppStores` (one ModelContainer shared by UI and intents), `EntryLogger` (save/recall logic extracted from the capture sheet — one code path for tap, talk, and Siri).
+
+Action Button setup: Settings → Action Button → Shortcut → "Talk to StrongMe" (or "Log" for the Siri-dialog flow). Widget (Lock Screen / Control Center) is the next slice — it needs a widget extension target.
+
+---
+
 # Post-2.5 — smart memory slice
 
 The spec's compounding promise — "the app gets easier the longer you use it" — made concrete:

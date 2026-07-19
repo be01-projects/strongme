@@ -82,10 +82,13 @@ struct TodayContent: View {
     @AppStorage("dailyInsightText") private var dailyInsightText = ""
     @AppStorage("dailyInsightStamp") private var dailyInsightStamp = ""
 
+    @Environment(\.scenePhase) private var scenePhase
+
     @State private var captureRequest: CaptureRequest?
     @State private var showCoach = false
     @State private var showHistory = false
     @State private var showProtein = false
+    @State private var showCare = false
     @State private var openMetric: Metric?
 
     let dayStart: Date
@@ -154,7 +157,14 @@ struct TodayContent: View {
         .sheet(isPresented: $showProtein) {
             ProteinSheet()
         }
+        .sheet(isPresented: $showCare) {
+            CareSheet()
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { consumePendingIntentFlags() }
+        }
         .task {
+            consumePendingIntentFlags()
             if firstLaunchTimestamp == 0 { firstLaunchTimestamp = Date.now.timeIntervalSince1970 }
             #if DEBUG
             // Scripted screenshots / UI tests
@@ -180,6 +190,20 @@ struct TodayContent: View {
         }
         .sensoryFeedback(.success, trigger: toast.message) { _, newValue in
             newValue != nil
+        }
+    }
+
+    /// App Intents can't present UI — they leave a flag and (when needed)
+    /// open the app; we finish the job here.
+    private func consumePendingIntentFlags() {
+        let defaults = UserDefaults.standard
+        if defaults.bool(forKey: "pendingCare") {
+            defaults.removeObject(forKey: "pendingCare")
+            showCare = true
+        }
+        if defaults.bool(forKey: "pendingOpenCapture") {
+            defaults.removeObject(forKey: "pendingOpenCapture")
+            captureRequest = .voice()
         }
     }
 
