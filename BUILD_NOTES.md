@@ -4,6 +4,31 @@
 
 ---
 
+# UI style A/B/C — third take: "Daybook"
+
+Where Journal changed only the treatment, Daybook changes **layout and palette**, each with a stated reason:
+
+- **Stats become one quiet strip** (StatStrip): the spec says "one insight, not a dashboard," yet the 2×2 grid gave ambient Tier-0 data the prime real estate. Demoted to a single ruled line of four figures; the read and protein become the heroes.
+- **Today is a visible thread**: the protein-sheet feedback ("show me what I ate") generalized — the home screen now shows the day's log chronologically (meals, reflections, trained-today), each row tappable to edit, with the reflection prompt at the thread's natural end.
+- **One confident suggestion** instead of the six-chip carousel: meal-aware smart memory has earned commitment — "Usual breakfast — Eggs + toast · +22g, tap to log" (long-press to remove).
+- **Clay palette** (PaletteSet.earthen): indigo-on-oat is a mind/evening register; this app is equally body/food/warmth. Linen paper, espresso ink, pine for the voice and controls, terracotta as the protein signal. Distinct in a market of blue/green/purple health apps.
+
+**Implementation**: Palette became computed over a `PaletteSet` (classic | earthen) resolved from the current style — all existing `Palette.x` call sites unchanged, so sheets/coach/capture inherit the clay palette automatically under Daybook. Care card colors deliberately constant across palettes. All three styles verified by screenshot; classic is regression-clean.
+
+---
+
+# UI style A/B — "Soft cards" vs "Journal"
+
+An alternate visual style, switchable live from the Aa button in the header (temporary chrome — one style wins and the picker goes away). Same layout, same interactions; only the visual language changes (`UIStyle` in Theme.swift, persisted in `uiStyle`).
+
+**Journal**: the editorial answer to "cards in a grid is every health app." No containers — the daily read is an open serif paragraph over a hairline rule; the stat grid becomes a ruled ledger with oversized Fraunces numerals; protein is a serif figure over a 3pt apricot thread; chips and rows keep ghost outlines (hairline, no fill weight, no shadow) purely for tap affordance. Leans into the one thing that's distinctly ours — the serif voice — and turns data into typography.
+
+**Implementation**: `cardBackground` branches per style (ghost in journal), so every sheet inherits automatically; StatCard/ProteinCard/insight/reflection-prompt have explicit journal variants since they're the centerpiece. Switching animates via @AppStorage — no restart.
+
+Verified both styles on simulator (sim gotcha for scripted testing: cfprefsd caches the prefs domain, so behind-its-back plutil writes need a `launchctl stop com.apple.cfprefsd.xpc.daemon` to stick).
+
+---
+
 # Milestone 3, slice 1a — code-review fixes
 
 A high-effort review of the slice (8 finder angles → 39 candidates → 10 verified findings) surfaced one theme: the Siri path had skipped guards the in-app path earned. All ten fixed:

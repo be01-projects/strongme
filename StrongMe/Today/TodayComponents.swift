@@ -110,7 +110,56 @@ struct StatCard: View {
     let sub: String
     var subHighlighted = false
 
+    @AppStorage(UIStyle.storageKey) private var styleRaw = UIStyle.card.rawValue
+
     var body: some View {
+        if styleRaw == UIStyle.journal.rawValue {
+            journalBody
+        } else {
+            cardBody
+        }
+    }
+
+    /// Journal: a ledger entry — small-caps label, oversized serif numeral,
+    /// a thin rule underneath. Data set like type, not boxed like a widget.
+    private var journalBody: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 6) {
+                EyebrowLabel(text: label)
+                Spacer()
+                Text("AUTO")
+                    .font(AppFont.ui(10, .semibold))
+                    .kerning(0.4)
+                    .foregroundStyle(Color(hex: 0xA9AAB2))
+            }
+
+            HStack(alignment: .firstTextBaseline, spacing: 3) {
+                Text(value)
+                    .font(AppFont.coach(31, .medium))
+                    .foregroundStyle(Palette.ink)
+                if let valueSuffix {
+                    Text(valueSuffix)
+                        .font(AppFont.ui(13, .medium))
+                        .foregroundStyle(Palette.muted)
+                }
+            }
+            .padding(.top, 8)
+
+            Text(sub)
+                .font(AppFont.ui(12, .medium))
+                .foregroundStyle(subHighlighted ? Palette.indigo : Palette.muted)
+                .lineLimit(1)
+                .padding(.top, 3)
+
+            JournalRule()
+                .padding(.top, 13)
+        }
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
+    }
+
+    private var cardBody: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 6) {
                 iconView
@@ -165,11 +214,81 @@ struct StatCard: View {
     }
 }
 
+// MARK: - Ambient stat strip (Daybook)
+//
+// "One insight, not a dashboard": Tier-0 data is ambient, so it gets one
+// quiet line — four small figures — instead of prime 2×2 real estate.
+
+struct StatStrip: View {
+    let snapshot: HealthSnapshot
+    var onOpen: (Metric) -> Void = { _ in }
+
+    var body: some View {
+        HStack(spacing: 0) {
+            cell(.steps, value: stepsShort, label: "steps")
+            divider
+            cell(.sleep, value: sleepShort, label: "sleep")
+            divider
+            cell(.training, value: "\(snapshot.workoutsThisWeek)×", label: "trained")
+            divider
+            cell(.weight, value: weightShort, label: snapshot.latestWeight != nil ? snapshot.weightUnitLabel : "weight")
+        }
+        .padding(.vertical, 12)
+        .overlay(alignment: .top) { JournalRule() }
+        .overlay(alignment: .bottom) { JournalRule() }
+    }
+
+    private var divider: some View {
+        Rectangle().fill(Palette.hairline).frame(width: 1, height: 26)
+    }
+
+    private func cell(_ metric: Metric, value: String, label: String) -> some View {
+        Button {
+            onOpen(metric)
+        } label: {
+            VStack(spacing: 2) {
+                Text(value)
+                    .font(AppFont.coach(17, .medium))
+                    .foregroundStyle(Palette.ink)
+                Text(label.uppercased())
+                    .font(AppFont.ui(9.5, .semibold))
+                    .kerning(0.5)
+                    .foregroundStyle(Palette.muted)
+            }
+            .frame(maxWidth: .infinity)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(label): \(value)")
+    }
+
+    private var stepsShort: String {
+        guard let steps = snapshot.stepsToday else { return "—" }
+        return steps >= 10_000
+            ? String(format: "%.1fk", Double(steps) / 1000)
+            : steps.formatted(.number.grouping(.automatic))
+    }
+
+    private var sleepShort: String {
+        guard let sleep = snapshot.sleepLastNight else { return "—" }
+        return String(format: "%.1fh", sleep / 3600)
+    }
+
+    private var weightShort: String {
+        guard let weight = snapshot.latestWeight else { return "—" }
+        return weight.truncatingRemainder(dividingBy: 1) == 0
+            ? String(Int(weight))
+            : String(format: "%.1f", weight)
+    }
+}
+
 // MARK: - Protein bar (the one warm signal)
 
 struct ProteinCard: View {
     let proteinToday: Double
     let target: Double
+
+    @AppStorage(UIStyle.storageKey) private var styleRaw = UIStyle.card.rawValue
 
     private var progress: Double {
         guard target > 0 else { return 0 }
@@ -177,6 +296,57 @@ struct ProteinCard: View {
     }
 
     var body: some View {
+        // Card keeps the boxed bar; journal AND daybook set the number as
+        // serif type over a thin signal thread
+        if styleRaw == UIStyle.card.rawValue {
+            cardBody
+        } else {
+            journalBody
+        }
+    }
+
+    /// Journal: the number is the hero — serif figures over a thin apricot
+    /// thread with a target tick, no container.
+    private var journalBody: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .firstTextBaseline) {
+                EyebrowLabel(text: "Protein", color: Palette.apricot)
+                Spacer()
+            }
+
+            HStack(alignment: .firstTextBaseline, spacing: 4) {
+                Text("\(Int(proteinToday.rounded()))")
+                    .font(AppFont.coach(31, .medium))
+                    .foregroundStyle(Palette.ink)
+                Text("of \(Int(target))g")
+                    .font(AppFont.ui(13, .medium))
+                    .foregroundStyle(Palette.muted)
+                Spacer()
+                Text(hint)
+                    .font(AppFont.ui(11.5, .medium))
+                    .foregroundStyle(Palette.muted)
+                    .multilineTextAlignment(.trailing)
+            }
+            .padding(.top, 8)
+
+            GeometryReader { geometry in
+                ZStack(alignment: .leading) {
+                    Rectangle().fill(Palette.track)
+                    Rectangle()
+                        .fill(Palette.apricot)
+                        .frame(width: max(3, geometry.size.width * progress))
+                        .animation(.spring(duration: 0.9), value: progress)
+                }
+            }
+            .frame(height: 3)
+            .padding(.top, 12)
+        }
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
+    }
+
+    private var cardBody: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .firstTextBaseline) {
                 EyebrowLabel(text: "Protein")
@@ -194,7 +364,7 @@ struct ProteinCard: View {
 
             GeometryReader { geometry in
                 ZStack(alignment: .leading) {
-                    Capsule().fill(Color(hex: 0xEFEDE7))
+                    Capsule().fill(Palette.track)
                     Capsule()
                         .fill(Palette.proteinGradient)
                         .frame(width: max(11, geometry.size.width * progress))
