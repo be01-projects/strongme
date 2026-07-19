@@ -14,14 +14,6 @@ struct StrongMeApp: App {
     @State private var health = HealthKitService()
     @State private var toast = ToastCenter()
 
-    private let container: ModelContainer = {
-        let container = try! ModelContainer(
-            for: FoodEntry.self, UsualMeal.self, ReflectionEntry.self, FoodCorrection.self
-        )
-        SeedData.seedUsualsIfNeeded(context: container.mainContext)
-        return container
-    }()
-
     var body: some Scene {
         WindowGroup {
             ContentView()
@@ -29,6 +21,6 @@ struct StrongMeApp: App {
                 .environment(toast)
                 .preferredColorScheme(.light)  // dark palette is a later pass
         }
-        .modelContainer(container)
+        .modelContainer(AppStores.container)  // shared with App Intents
     }
 }

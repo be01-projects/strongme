@@ -338,7 +338,7 @@ struct DayDetailSection: View {
                         onChange()
                         toast.show("Deleted") { [health] in
                             Task {
-                                try? await health.saveWeight(
+                                _ = try? await health.saveWeight(
                                     value: reading.value,
                                     unit: reading.unitLabel == "kg" ? .gramUnit(with: .kilo) : .pound(),
                                     date: reading.date

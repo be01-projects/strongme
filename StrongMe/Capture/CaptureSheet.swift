@@ -9,6 +9,7 @@
 import HealthKit
 import SwiftData
 import SwiftUI
+import UIKit
 
 // MARK: - Entry point / request
 
@@ -86,6 +87,7 @@ struct CaptureSheet: View {
         case confirmFood(FoodDraft)
         case confirmWeight(value: Double, unit: String, raw: String)
         case confirmTarget(grams: Double)
+        case confirmName(String)
         case reflectionSaved(text: String, tags: [String])
         case care
         case notice(String)
@@ -135,6 +137,8 @@ struct CaptureSheet: View {
             weightConfirmView(value: value, unit: unit, raw: raw)
         case .confirmTarget(let grams):
             targetConfirmView(grams: grams)
+        case .confirmName(let name):
+            nameConfirmView(name: name)
         case .reflectionSaved(let text, let tags):
             reflectionView(text: text, tags: tags)
         case .care:
@@ -189,16 +193,38 @@ struct CaptureSheet: View {
             phase = .typing
             return
         }
+        // "I caught that" — matters most when the silence detector fired
+        // and the user isn't looking at the screen
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
         parse(text)
     }
 
     private func parse(_ text: String) {
+        // "Log my usual breakfast" — smart memory beats a round trip. Only
+        // when the whole utterance is the command; "log breakfast: eggs and
+        // toast" still goes to the parser.
+        if let meal = EntryLogger.usualRequestMeal(in: text) {
+            recallUsual(for: meal, rawText: text)
+            return
+        }
+
         phase = .parsing
         Task {
-            let corrections = recentCorrections()
+            let corrections = EntryLogger.recentCorrections(context: modelContext)
             let (entry, source) = await EntryParser.parse(text, corrections: corrections)
             route(entry, source: source, rawText: text)
         }
+    }
+
+    private func recallUsual(for meal: String, rawText: String) {
+        guard let usual = EntryLogger.topUsual(for: meal, context: modelContext) else {
+            phase = .notice("No usual \(meal) saved yet — log it once and I'll remember it.")
+            return
+        }
+        let chips = usual.items.map {
+            ChipItem(name: $0.name, originalName: $0.name, proteinGrams: $0.proteinGrams, calories: $0.calories)
+        }
+        phase = .confirmFood(FoodDraft(meal: meal, chips: chips, rawText: rawText, source: .usualRecall))
     }
 
     private func route(_ entry: ParsedEntry, source: ParseSource, rawText: String) {
@@ -224,6 +250,14 @@ struct CaptureSheet: View {
                 return
             }
             phase = .confirmTarget(grams: entry.targetProteinG)
+
+        case .name:
+            let name = entry.userName.trimmingCharacters(in: .whitespaces)
+            guard !name.isEmpty else {
+                phase = .notice("I didn't catch the name. Try “call me Steve”.")
+                return
+            }
+            phase = .confirmName(name)
 
         case .reflection, .other:
             deleteReplacedEntries()
@@ -257,9 +291,10 @@ struct CaptureSheet: View {
         let items = draft.chips.map {
             FoodItemRecord(name: $0.name, proteinGrams: $0.proteinGrams, calories: $0.calories)
         }
-        let entry = FoodEntry(date: entryDate, mealLabel: draft.meal, items: items, rawText: draft.rawText)
-        modelContext.insert(entry)
-        UsualLearner.record(items: items, meal: draft.meal, context: modelContext)
+        let entry = EntryLogger.saveFood(
+            items: items, meal: draft.meal, rawText: draft.rawText,
+            date: entryDate, context: modelContext
+        )
 
         toast.show("Logged · +\(Int(draft.proteinGrams.rounded()))g protein") { [modelContext] in
             modelContext.delete(entry)
@@ -310,13 +345,6 @@ struct CaptureSheet: View {
            let entry = modelContext.model(for: reflectionID) as? ReflectionEntry {
             modelContext.delete(entry)
         }
-    }
-
-    private func recentCorrections() -> [(String, String)] {
-        var descriptor = FetchDescriptor<FoodCorrection>(sortBy: [SortDescriptor(\.date, order: .reverse)])
-        descriptor.fetchLimit = 10
-        let fixes = (try? modelContext.fetch(descriptor)) ?? []
-        return fixes.map { ($0.original, $0.corrected) }
     }
 
     private func trimmed(_ value: Double) -> String {
@@ -519,6 +547,42 @@ struct CaptureSheet: View {
         }
     }
 
+    // MARK: Name confirm
+
+    private func nameConfirmView(name: String) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("Heard you say")
+                .font(AppFont.ui(12, .medium))
+                .foregroundStyle(Palette.muted)
+            Text("What should I call you?")
+                .font(AppFont.coach(19))
+                .foregroundStyle(Palette.ink)
+                .padding(.top, 4)
+
+            Text(name)
+                .font(AppFont.coach(30, .medium))
+                .foregroundStyle(Palette.indigo)
+                .padding(.top, 16)
+
+            Text("Just for the greeting — it never leaves the device.")
+                .font(AppFont.ui(11.5, .medium))
+                .foregroundStyle(Palette.muted)
+                .padding(.top, 10)
+                .padding(.bottom, 18)
+
+            Button {
+                let previous = UserDefaults.standard.string(forKey: "userName") ?? ""
+                UserDefaults.standard.set(name, forKey: "userName")
+                toast.show("Nice to meet you, \(name)") {
+                    UserDefaults.standard.set(previous, forKey: "userName")
+                }
+                dismiss()
+            } label: {
+                Text("That's me").confirmButtonStyle()
+            }
+        }
+    }
+
     // MARK: Reflection saved
 
     private func reflectionView(text: String, tags: [String]) -> some View {
@@ -561,32 +625,8 @@ struct CaptureSheet: View {
 
     private var careView: some View {
         VStack(alignment: .leading, spacing: 0) {
-            VStack(alignment: .leading, spacing: 13) {
-                Circle()
-                    .fill(.white)
-                    .frame(width: 36, height: 36)
-                    .overlay(
-                        Image(systemName: "heart")
-                            .font(.system(size: 16))
-                            .foregroundStyle(Palette.careHeart)
-                    )
-                    .cardShadow()
-
-                Text("That sounds really heavy — I'm glad you put it into words. This isn't something to log or fix with a number, and you don't have to carry it on your own.")
-                    .font(AppFont.coach(17))
-                    .foregroundStyle(Palette.coachInk)
-                    .lineSpacing(4)
-
-                Text("Talking to someone you trust, or a mental health professional, can genuinely help. In the U.S. you can call or text 988 (Suicide & Crisis Lifeline) any time; elsewhere, findahelpline.com lists local support.")
-                    .font(AppFont.ui(13.5, .medium))
-                    .foregroundStyle(Palette.muted)
-                    .lineSpacing(3)
-            }
-            .padding(20)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(RoundedRectangle(cornerRadius: 20, style: .continuous).fill(Palette.careGradient))
-            .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).strokeBorder(Palette.careBorder))
-            .padding(.bottom, 14)
+            CareCard()
+                .padding(.bottom, 14)
 
             Button { dismiss() } label: {
                 Text("Okay").confirmButtonStyle()
@@ -650,9 +690,7 @@ private struct FoodConfirmView: View {
 
             chipGrid
 
-            Text(draft.source == .onDeviceFallback
-                 ? "Rough on-device guess (no API key set) — tap a chip to fix it, × to remove, ＋ if something's missing."
-                 : "Tap a chip to fix it, × to remove, ＋ if something's missing — it remembers your corrections next time.")
+            Text(editNote)
                 .font(AppFont.ui(11.5, .medium))
                 .foregroundStyle(Palette.muted)
                 .padding(.top, 10)
@@ -717,6 +755,17 @@ private struct FoodConfirmView: View {
         estimatingChipIDs.isEmpty
             ? "≈ \(Int(draft.calories.rounded())) kcal · \(Int(draft.proteinGrams.rounded()))g protein"
             : "≈ updating estimate…"
+    }
+
+    private var editNote: String {
+        switch draft.source {
+        case .onDeviceFallback:
+            "Rough on-device guess (no API key set) — tap a chip to fix it, × to remove, ＋ if something's missing."
+        case .usualRecall:
+            "Your usual — tweak anything before logging, or just confirm."
+        case .claude:
+            "Tap a chip to fix it, × to remove, ＋ if something's missing — it remembers your corrections next time."
+        }
     }
 
     private var chipGrid: some View {
@@ -880,6 +929,7 @@ struct FlowLayout: Layout {
 enum UsualLearner {
     /// Confirmed meals become one-tap usuals; frequency wins over the seeds.
     static func record(items: [FoodItemRecord], meal: String, context: ModelContext) {
+        guard !items.isEmpty else { return }  // never learn a nameless usual
         let name = displayName(for: items)
         let all = (try? context.fetch(FetchDescriptor<UsualMeal>())) ?? []
         if let existing = all.first(where: { $0.name.localizedCaseInsensitiveCompare(name) == .orderedSame }) {
@@ -887,8 +937,14 @@ enum UsualLearner {
             existing.lastUsed = .now
             existing.items = items
             existing.isSeed = false
+            // The label sticks once set: one off-schedule dinner of a
+            // 20-time breakfast must not break "log my usual breakfast".
+            // (Habit truly moved? Remove the usual and re-learn.)
+            if existing.mealLabel == "unknown", meal != "unknown" {
+                existing.mealLabel = meal
+            }
         } else {
-            context.insert(UsualMeal(name: name, items: items, timesLogged: 1))
+            context.insert(UsualMeal(name: name, items: items, timesLogged: 1, mealLabel: meal))
         }
     }
 

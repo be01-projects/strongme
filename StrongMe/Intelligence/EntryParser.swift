@@ -13,17 +13,18 @@ import Foundation
 
 struct ParsedEntry: Codable {
     enum Kind: String, Codable {
-        case food, weight, reflection, distress, target, other
+        case food, weight, reflection, distress, target, name, other
     }
 
     var kind: Kind
-    var meal: String                // breakfast | lunch | dinner | snack | unknown
-    var items: [ParsedFoodItem]
-    var weightValue: Double
-    var weightUnit: String          // lb | kg | unknown
-    var reflectionTags: [String]
-    var targetProteinG: Double      // for kind == .target
-    var summary: String
+    var meal: String = "unknown"    // breakfast | lunch | dinner | snack | unknown
+    var items: [ParsedFoodItem] = []
+    var weightValue: Double = 0
+    var weightUnit: String = "unknown"  // lb | kg | unknown
+    var reflectionTags: [String] = []
+    var targetProteinG: Double = 0  // for kind == .target
+    var userName: String = ""       // for kind == .name
+    var summary: String = ""
 
     enum CodingKeys: String, CodingKey {
         case kind, meal, items
@@ -31,6 +32,7 @@ struct ParsedEntry: Codable {
         case weightUnit = "weight_unit"
         case reflectionTags = "reflection_tags"
         case targetProteinG = "target_protein_g"
+        case userName = "user_name"
         case summary
     }
 }
@@ -50,6 +52,8 @@ struct ParsedFoodItem: Codable {
 enum ParseSource {
     case claude
     case onDeviceFallback
+    /// Pre-filled from a learned usual ("log my usual breakfast")
+    case usualRecall
 }
 
 // MARK: - Parser
@@ -103,6 +107,9 @@ enum EntryParser {
         and the content is concerning, choose distress — err on the side of care.
         - "target": the user is setting their daily protein target (e.g. "set \
         my protein target to 160"). Put the grams in target_protein_g.
+        - "name": the user is telling the app what to call them ("call me \
+        Steve", "my name is Dana"). Put the name in user_name. Only for \
+        explicit name-setting — never infer a name from other content.
         - "other": none of the above (questions, commands, noise).
 
         Food rules:
@@ -135,7 +142,7 @@ enum EntryParser {
     private static let schema: [String: Any] = [
         "type": "object",
         "properties": [
-            "kind": ["type": "string", "enum": ["food", "weight", "reflection", "distress", "target", "other"]],
+            "kind": ["type": "string", "enum": ["food", "weight", "reflection", "distress", "target", "name", "other"]],
             "meal": ["type": "string", "enum": ["breakfast", "lunch", "dinner", "snack", "unknown"]],
             "items": [
                 "type": "array",
@@ -154,9 +161,10 @@ enum EntryParser {
             "weight_unit": ["type": "string", "enum": ["lb", "kg", "unknown"]],
             "reflection_tags": ["type": "array", "items": ["type": "string"]],
             "target_protein_g": ["type": "number"],
+            "user_name": ["type": "string"],
             "summary": ["type": "string"],
         ],
-        "required": ["kind", "meal", "items", "weight_value", "weight_unit", "reflection_tags", "target_protein_g", "summary"],
+        "required": ["kind", "meal", "items", "weight_value", "weight_unit", "reflection_tags", "target_protein_g", "user_name", "summary"],
         "additionalProperties": false,
     ]
 
@@ -213,6 +221,12 @@ enum LocalFallbackParser {
             return ParsedEntry(kind: .distress, meal: "unknown", items: [],
                                weightValue: 0, weightUnit: "unknown",
                                reflectionTags: [], targetProteinG: 0, summary: "")
+        }
+
+        // Name: only the explicit forms — "i'm exhausted" must stay a reflection
+        if let match = text.firstMatch(of: /^(?:call me|my name is)\s+([a-z]+)[.!]?$/) {
+            let name = String(match.1).capitalized
+            return ParsedEntry(kind: .name, userName: name, summary: "Call you \(name)")
         }
 
         // Protein target: "set my protein target to 160"

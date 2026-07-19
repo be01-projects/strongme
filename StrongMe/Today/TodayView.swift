@@ -82,9 +82,13 @@ struct TodayContent: View {
     @AppStorage("dailyInsightText") private var dailyInsightText = ""
     @AppStorage("dailyInsightStamp") private var dailyInsightStamp = ""
 
+    @State private var pendingActions = PendingIntentActions.shared
+
     @State private var captureRequest: CaptureRequest?
     @State private var showCoach = false
     @State private var showHistory = false
+    @State private var showProtein = false
+    @State private var showCare = false
     @State private var openMetric: Metric?
 
     let dayStart: Date
@@ -109,7 +113,7 @@ struct TodayContent: View {
                     }
                     .padding(.top, 16)
                     Button {
-                        showHistory = true  // opens on today's entries — edit from there
+                        showProtein = true  // "what have I eaten today?"
                     } label: {
                         ProteinCard(proteinToday: proteinToday, target: proteinTarget)
                     }
@@ -150,12 +154,23 @@ struct TodayContent: View {
         .sheet(item: $openMetric) { metric in
             MetricSheet(metric: metric)
         }
+        .sheet(isPresented: $showProtein) {
+            ProteinSheet(dayStart: dayStart)
+        }
+        .sheet(isPresented: $showCare) {
+            CareSheet()
+        }
+        .onChange(of: pendingActions.action) { _, _ in
+            consumePendingIntentAction()
+        }
         .task {
+            consumePendingIntentAction()
             if firstLaunchTimestamp == 0 { firstLaunchTimestamp = Date.now.timeIntervalSince1970 }
             #if DEBUG
             // Scripted screenshots / UI tests
             if ProcessInfo.processInfo.arguments.contains("-open-coach") { showCoach = true }
             if ProcessInfo.processInfo.arguments.contains("-open-history") { showHistory = true }
+            if ProcessInfo.processInfo.arguments.contains("-open-protein") { showProtein = true }
             if let metricArg = ProcessInfo.processInfo.arguments.first(where: { $0.hasPrefix("-open-metric-") }),
                let metric = Metric(rawValue: String(metricArg.dropFirst("-open-metric-".count))) {
                 openMetric = metric
@@ -175,6 +190,19 @@ struct TodayContent: View {
         }
         .sensoryFeedback(.success, trigger: toast.message) { _, newValue in
             newValue != nil
+        }
+    }
+
+    /// App Intents can't present UI — they set a typed pending action and
+    /// (when needed) open the app; we finish the job here. Observed live via
+    /// onChange, so it works even when the app was already frontmost, and
+    /// checked once in .task for cold launches.
+    private func consumePendingIntentAction() {
+        guard let action = pendingActions.action else { return }
+        pendingActions.action = nil
+        switch action {
+        case .care: showCare = true
+        case .openCapture: captureRequest = .voice()
         }
     }
 
@@ -226,12 +254,15 @@ struct TodayContent: View {
         .padding(.top, 14)
     }
 
+    @AppStorage("userName") private var userName = ""
+
     private var greeting: String {
-        switch Calendar.current.component(.hour, from: .now) {
-        case 4..<12: "Good morning."
-        case 12..<17: "Good afternoon."
-        default: "Good evening."
+        let salutation = switch Calendar.current.component(.hour, from: .now) {
+        case 4..<12: "Good morning"
+        case 12..<17: "Good afternoon"
+        default: "Good evening"
         }
+        return userName.isEmpty ? "\(salutation)." : "\(salutation), \(userName)."
     }
 
     private var dateLine: String {
@@ -274,6 +305,9 @@ struct TodayContent: View {
                     .foregroundStyle(Palette.coachInk)
                     .lineSpacing(5)
                     .multilineTextAlignment(.leading)
+                    // the read updating should feel like rereading, not a glitch
+                    .contentTransition(.opacity)
+                    .animation(.easeInOut(duration: 0.4), value: insightText)
 
                 HStack(spacing: 5) {
                     Text("Ask your coach")
@@ -310,7 +344,7 @@ struct TodayContent: View {
 
             ScrollView(.horizontal) {
                 HStack(spacing: 9) {
-                    ForEach(usuals.prefix(6)) { usual in
+                    ForEach(timeAwareUsuals) { usual in
                         Button {
                             quickLog(usual)
                         } label: {
@@ -341,10 +375,28 @@ struct TodayContent: View {
                     }
                 }
                 .padding(.vertical, 4)
-                .padding(.horizontal, 2)
             }
             .scrollIndicators(.hidden)
+            // Bleed to the screen edge so chips clip at the display, not at
+            // the content column's invisible 20pt inset mid-scroll
+            .padding(.horizontal, -20)
+            .contentMargins(.horizontal, 22, for: .scrollContent)
         }
+    }
+
+    /// Usuals for the meal it currently is float to the front — breakfasts
+    /// in the morning, dinners at night. Frequency breaks ties.
+    private var timeAwareUsuals: [UsualMeal] {
+        let currentMeal = LocalFallbackParser.inferMeal()
+        return usuals.sorted { a, b in
+            let aMatches = a.mealLabel == currentMeal
+            let bMatches = b.mealLabel == currentMeal
+            if aMatches != bMatches { return aMatches }
+            if a.timesLogged != b.timesLogged { return a.timesLogged > b.timesLogged }
+            return a.lastUsed > b.lastUsed
+        }
+        .prefix(6)
+        .map { $0 }
     }
 
     private func quickLog(_ usual: UsualMeal) {

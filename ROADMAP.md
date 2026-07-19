@@ -47,10 +47,19 @@ Build order follows the spec's de-risk sequence.*
 - [x] Dynamic Type via relativeTo anchors; VoiceOver labels on icon buttons
 - [x] Long-press to remove a usual; correction memory dedup
 
+## ✅ Post-2.5 protein sheet *(2026-07-15)*
+- [x] Protein bar opens a focused today's-meals view (edit/delete, 7-day bars, coach)
+
+## ✅ Post-2.5 smart memory slice *(2026-07-16)*
+- [x] Usuals learn meal labels; time-aware chip ordering
+- [x] "Log my usual breakfast" pre-fills from memory (local, zero API)
+- [x] "Call me Steve" greeting personalization
+- [x] Auto-finish haptic; insight crossfade
+
 ## ⏳ Milestone 3 — logging without opening the app
-- [ ] App Intents foundation ("log my lunch", "log a reflection") — Siri + Shortcuts
-- [ ] Action Button support (hold → talk → parser)
-- [ ] Lock Screen / Control Center widget (one-tap talk)
+- [x] App Intents foundation — LogEntryIntent (parse anything, optimistic + snippet), LogUsualIntent (hands-free meal enum), TalkIntent (open listening); distress opens the app, never a banner *(2026-07-18)*
+- [x] Action Button support — point it at "Talk to StrongMe" or "Log" in Settings
+- [ ] Lock Screen / Control Center widget (one-tap talk) — needs widget extension target
 - [ ] Home Screen widget (protein bar + today at a glance) — nice-to-have
 - [ ] Apple Watch complication + minimal watch capture — *likely its own slice; largest lift*
 

@@ -4,6 +4,54 @@
 
 ---
 
+# Milestone 3, slice 1a — code-review fixes
+
+A high-effort review of the slice (8 finder angles → 39 candidates → 10 verified findings) surfaced one theme: the Siri path had skipped guards the in-app path earned. All ten fixed:
+
+1. **Typed in-memory pending actions** (`PendingIntentActions`, replacing the UserDefaults flags): fixes the Action-Button race (flag written after consumption already ran — certain failure when the app was frontmost), the stale distress flag firing on unrelated launches (declined Siri prompts now correctly evaporate), and two-sheet contention (one optional action = at most one presentation).
+2. **Usual recall can't hijack statements**: the regex now requires an explicit "log" or "usual" — "I had lunch" goes to the parser, as it should. And `topUsual` **excludes seeds**: recall never files food you've never actually eaten (seeds remain tappable chips).
+3. **Siri weight parity**: unspecified units resolve via the user's Health preference (was: pounds for everyone), and zero-value weights are rejected instead of written.
+4. **Explicit `context.save()`** after every intent mutation — background launches may never run autosave, and Siri must not confirm a log that then evaporates.
+5. **Empty-parse guard** on the Siri food path (in-app already had it), plus `UsualLearner` refuses to learn a nameless usual from empty items.
+6. **Usual meal labels stick**: one off-schedule dinner no longer flips a 20-time breakfast's label and breaks "log my usual breakfast".
+7. **ProteinSheet rebuilt on one live 7-day @Query** keyed to Today's `dayStart`: the bars can no longer go stale against the meal list, today's rows aren't fetched twice, and the sheet agrees with the screen behind it across midnight.
+
+Review also logged cleanup debt (duplicated sheet chrome/day-labels/bar-rows, the intent-vs-app routing switch, scattered settings keys) — deferred, tracked in the review report.
+
+---
+
+# Milestone 3, slice 1 — App Intents foundation
+
+"The best logging never opens the app." Siri, Shortcuts, and the Action Button now funnel into the same parser and stores as the talk control (`Intents/AppIntents.swift`):
+
+- **`LogEntryIntent`** — "Hey Siri, log food in StrongMe" → Siri asks "What would you like to log?" → the sentence runs through the usual-recall shortcut, then the Claude parser (Haiku), and files food / weight / reflection / target / name. **Optimistic logging**: Siri's reply says exactly what was understood ("Logged: 2 eggs, toast — about 25 grams of protein"), with a chip snippet under the dialog; History/Undo in-app are the correction loop.
+- **`LogUsualIntent`** — "Log my usual breakfast in StrongMe", fully hands-free: the meal is an enum in the Siri phrase itself, no follow-up question, zero API calls.
+- **`TalkIntent`** — "Talk to StrongMe" / the Action Button: opens the app straight into the listening sheet (verified via the pending-flag path).
+- **The distress guardrail survives the shortcut path**: a concerning entry via Siri is never logged and never gets a banner — the app opens to the full care response (`CareCard`, now shared between the capture flow and a standalone sheet).
+- Plumbing: `AppStores` (one ModelContainer shared by UI and intents), `EntryLogger` (save/recall logic extracted from the capture sheet — one code path for tap, talk, and Siri).
+
+Action Button setup: Settings → Action Button → Shortcut → "Talk to StrongMe" (or "Log" for the Siri-dialog flow). Widget (Lock Screen / Control Center) is the next slice — it needs a widget extension target.
+
+---
+
+# Post-2.5 — smart memory slice
+
+The spec's compounding promise — "the app gets easier the longer you use it" — made concrete:
+
+1. **Usuals learn their meal.** `UsualMeal.mealLabel` (with a one-time backfill for pre-existing seeds); each confirmed log updates it, recency wins.
+2. **Time-aware chips.** The "your usual" row floats the current meal's usuals to the front — breakfasts in the morning, dinners at night; frequency breaks ties.
+3. **"Log my usual breakfast."** Recognized locally (no API call) when the utterance is just the command; pre-fills your top usual for that meal in the confirm sheet ("Your usual — tweak anything before logging"). No usual saved yet → a gentle notice. "log breakfast: eggs and toast" still parses normally.
+4. **"Call me Steve."** New parser kind (`name`, explicit forms only — "i'm exhausted" stays a reflection); confirm card notes the name never leaves the device; greeting becomes "Good evening, Steve."
+5. **Feel:** a light haptic when the silence detector files your entry (feedback without looking), and the daily read crossfades when it regenerates instead of snapping.
+
+---
+
+# Post-2.5 — protein sheet
+
+Tapping the protein bar now answers "what have I eaten today?" directly (`ProteinSheet.swift`): today's meals with per-meal protein and time, edit/delete in place (same replace-on-confirm loop), a "+ Log a meal" shortcut, 7-day protein bars with a target tick, and the coach one tap deeper ("Am I on track with protein?"). Previously it opened History-on-today, which buried the answer under the month grid. Debug arg: `-open-protein`.
+
+---
+
 # Post-2.5 — button-up batch
 
 1. **AccentColor → indigo** — alerts, menus, and selection chrome no longer flash iOS blue.
