@@ -783,7 +783,7 @@ private struct FoodConfirmView: View {
                             .font(.system(size: 10, weight: .semibold))
                             .foregroundStyle(Palette.muted)
                             .frame(width: 19, height: 19)
-                            .background(Circle().fill(Color(hex: 0xEFEDE7)))
+                            .background(Circle().fill(Palette.track))
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Remove \(chip.name)")

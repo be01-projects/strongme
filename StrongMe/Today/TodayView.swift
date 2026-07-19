@@ -108,21 +108,45 @@ struct TodayContent: View {
                     header
                     insightCard
                         .padding(.top, 20)
-                    StatGrid(snapshot: health.snapshot) { metric in
-                        openMetric = metric
+
+                    if style == .daybook {
+                        // Daybook: protein hero → ambient strip → one confident
+                        // suggestion → the day as a visible, editable thread
+                        Button {
+                            showProtein = true
+                        } label: {
+                            ProteinCard(proteinToday: proteinToday, target: proteinTarget)
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.top, 14)
+
+                        StatStrip(snapshot: health.snapshot) { metric in
+                            openMetric = metric
+                        }
+                        .padding(.top, 14)
+
+                        daybookSuggestion
+                            .padding(.top, 18)
+
+                        daybookThread
+                            .padding(.top, 22)
+                    } else {
+                        StatGrid(snapshot: health.snapshot) { metric in
+                            openMetric = metric
+                        }
+                        .padding(.top, 16)
+                        Button {
+                            showProtein = true  // "what have I eaten today?"
+                        } label: {
+                            ProteinCard(proteinToday: proteinToday, target: proteinTarget)
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.top, 11)
+                        usualRow
+                            .padding(.top, 22)
+                        reflectionSection
+                            .padding(.top, 22)
                     }
-                    .padding(.top, 16)
-                    Button {
-                        showProtein = true  // "what have I eaten today?"
-                    } label: {
-                        ProteinCard(proteinToday: proteinToday, target: proteinTarget)
-                    }
-                    .buttonStyle(.plain)
-                    .padding(.top, 11)
-                    usualRow
-                        .padding(.top, 22)
-                    reflectionSection
-                        .padding(.top, 22)
                 }
                 .padding(.horizontal, 20)
                 .padding(.top, 8)
@@ -276,7 +300,8 @@ struct TodayContent: View {
     @AppStorage(UIStyle.storageKey) private var styleRaw = UIStyle.card.rawValue
     @State private var showAppearance = false
 
-    private var isJournal: Bool { styleRaw == UIStyle.journal.rawValue }
+    private var style: UIStyle { UIStyle(rawValue: styleRaw) ?? .card }
+    private var isJournal: Bool { style == .journal }
 
     private var greeting: String {
         let salutation = switch Calendar.current.component(.hour, from: .now) {
@@ -522,6 +547,152 @@ struct TodayContent: View {
                 .buttonStyle(.plain)
             }
         }
+    }
+
+    // MARK: Daybook sections
+
+    /// Smart memory earns commitment: one confident suggestion for the meal
+    /// it currently is, instead of a hedging carousel. Long-press to remove.
+    @ViewBuilder
+    private var daybookSuggestion: some View {
+        let currentMeal = LocalFallbackParser.inferMeal()
+        if let usual = timeAwareUsuals.first(where: { $0.mealLabel == currentMeal }) ?? timeAwareUsuals.first {
+            Button {
+                quickLog(usual)
+            } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: "bolt.fill")
+                        .font(.system(size: 11))
+                        .foregroundStyle(Palette.apricot)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("Usual \(usual.mealLabel == "unknown" ? "pick" : usual.mealLabel)")
+                            .font(AppFont.ui(10.5, .semibold))
+                            .kerning(0.5)
+                            .foregroundStyle(Palette.muted)
+                            .textCase(.uppercase)
+                        Text(usual.name)
+                            .font(AppFont.coach(16, .medium))
+                            .foregroundStyle(Palette.ink)
+                    }
+                    Spacer()
+                    Text("+\(Int(usual.proteinGrams.rounded()))g · tap to log")
+                        .font(AppFont.ui(12, .semibold))
+                        .foregroundStyle(Palette.indigo)
+                }
+                .padding(.horizontal, 15)
+                .padding(.vertical, 12)
+                .cardBackground(cornerRadius: 16)
+            }
+            .buttonStyle(.plain)
+            .contextMenu {
+                Button(role: .destructive) {
+                    modelContext.delete(usual)
+                    toast.show("Removed from usuals")
+                } label: {
+                    Label("Remove from usuals", systemImage: "trash")
+                }
+            }
+        }
+    }
+
+    /// The day as a visible thread — what you logged, in order, editable.
+    private var daybookThread: some View {
+        let todaysReflections = reflections.filter { $0.date >= dayStart }
+        return VStack(alignment: .leading, spacing: 10) {
+            EyebrowLabel(text: "Today")
+                .padding(.horizontal, 2)
+
+            if todaysFood.isEmpty && todaysReflections.isEmpty && !health.snapshot.trainedToday {
+                Text("Nothing yet — the day's still unwritten.")
+                    .font(AppFont.coach(15))
+                    .foregroundStyle(Palette.muted)
+                    .padding(.horizontal, 2)
+            }
+
+            if health.snapshot.trainedToday {
+                threadRow(time: "", icon: "🏋", title: "Trained today", detail: "synced from Health") {}
+            }
+
+            ForEach(todaysFood.sorted { $0.date < $1.date }) { entry in
+                threadRow(
+                    time: entry.date.formatted(.dateTime.hour().minute()),
+                    icon: "🥣",
+                    title: entry.mealLabel.capitalized == "Unknown" ? "Meal" : entry.mealLabel.capitalized,
+                    detail: "\(entry.items.map(\.name).joined(separator: ", ")) · +\(Int(entry.proteinGrams.rounded()))g"
+                ) {
+                    captureRequest = CaptureRequest(
+                        mode: .typing, prefill: entry.rawText,
+                        targetDate: entry.date, replacingFoodID: entry.persistentModelID
+                    )
+                }
+            }
+
+            ForEach(todaysReflections) { entry in
+                threadRow(
+                    time: entry.date.formatted(.dateTime.hour().minute()),
+                    icon: "📝",
+                    title: "Reflection",
+                    detail: "“\(entry.text)”"
+                ) {
+                    captureRequest = CaptureRequest(
+                        mode: .typing, prefill: entry.text,
+                        targetDate: entry.date, replacingReflectionID: entry.persistentModelID
+                    )
+                }
+            }
+
+            // The reflection prompt lives at the thread's end — the natural
+            // "and how did it feel?" position
+            Button {
+                captureRequest = .typing(prompt: "How are you feeling? What kind of day was it?")
+            } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: "plus.circle")
+                        .font(.system(size: 15))
+                        .foregroundStyle(Palette.indigo)
+                    Text("How's today feeling?")
+                        .font(AppFont.coach(15))
+                        .foregroundStyle(Palette.coachInk)
+                    Spacer()
+                }
+                .padding(.horizontal, 15)
+                .padding(.vertical, 11)
+                .cardBackground(cornerRadius: 14)
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    private func threadRow(
+        time: String, icon: String, title: String, detail: String,
+        onTap: @escaping () -> Void
+    ) -> some View {
+        Button(action: onTap) {
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Text(time)
+                    .font(AppFont.ui(10.5, .semibold))
+                    .foregroundStyle(Palette.muted)
+                    .monospacedDigit()
+                    .frame(width: 44, alignment: .leading)
+                Text(icon)
+                    .font(.system(size: 13))
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(title)
+                        .font(AppFont.ui(13.5, .semibold))
+                        .foregroundStyle(Palette.ink)
+                    Text(detail)
+                        .font(AppFont.ui(12, .medium))
+                        .foregroundStyle(Palette.muted)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.leading)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 13)
+            .padding(.vertical, 10)
+            .cardBackground(cornerRadius: 14)
+        }
+        .buttonStyle(.plain)
     }
 
     private func relativeDay(_ date: Date) -> String {

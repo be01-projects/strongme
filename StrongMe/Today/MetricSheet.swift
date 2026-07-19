@@ -227,7 +227,7 @@ struct MetricSheet: View {
                 .frame(width: 58, alignment: .leading)
             GeometryReader { geometry in
                 ZStack(alignment: .leading) {
-                    Capsule().fill(Color(hex: 0xEFEDE7))
+                    Capsule().fill(Palette.track)
                     Capsule()
                         .fill(LinearGradient(colors: [Palette.indigoLight.opacity(0.7), Palette.indigo],
                                              startPoint: .leading, endPoint: .trailing))

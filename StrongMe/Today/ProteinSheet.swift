@@ -220,7 +220,7 @@ struct ProteinSheet: View {
                         .frame(width: 58, alignment: .leading)
                     GeometryReader { geometry in
                         ZStack(alignment: .leading) {
-                            Capsule().fill(Color(hex: 0xEFEDE7))
+                            Capsule().fill(Palette.track)
                             // target tick
                             Rectangle()
                                 .fill(Palette.muted.opacity(0.35))

@@ -45,6 +45,13 @@ struct AppearanceSheet: View {
                 title: "Journal",
                 blurb: "Borderless and typographic — serif numerals, thin rules, more paper than dashboard."
             )
+            .padding(.bottom, 10)
+
+            optionRow(
+                style: .daybook,
+                title: "Daybook",
+                blurb: "A different take: your day as a visible thread, stats as one quiet strip, warm clay instead of indigo."
+            )
 
             Spacer(minLength: 0)
         }
@@ -110,15 +117,29 @@ struct AppearanceSheet: View {
             case .journal:
                 Text("Aa")
                     .font(AppFont.coach(13, .medium))
-                    .foregroundStyle(Palette.ink)
+                    .foregroundStyle(Color(hex: 0x1E2230))
                     .frame(maxWidth: .infinity, alignment: .leading)
-                Rectangle().fill(Palette.hairline).frame(height: 1)
-                Rectangle().fill(Palette.hairline).frame(height: 1)
-                Rectangle().fill(Palette.apricot).frame(height: 2)
+                Rectangle().fill(Color(hex: 0xE4E3DC)).frame(height: 1)
+                Rectangle().fill(Color(hex: 0xE4E3DC)).frame(height: 1)
+                Rectangle().fill(Color(hex: 0xE39A63)).frame(height: 2)
+            case .daybook:
+                Rectangle().fill(Color(hex: 0xC4693B)).frame(height: 3)
+                HStack(spacing: 3) {
+                    ForEach(0..<4, id: \.self) { _ in
+                        RoundedRectangle(cornerRadius: 1.5).fill(Color(hex: 0xE6DED2)).frame(height: 6)
+                    }
+                }
+                RoundedRectangle(cornerRadius: 3).fill(Color(hex: 0xFCF9F3)).frame(height: 9)
+                    .overlay(RoundedRectangle(cornerRadius: 3).strokeBorder(Color(hex: 0xE6DED2)))
+                RoundedRectangle(cornerRadius: 3).fill(Color(hex: 0xFCF9F3)).frame(height: 9)
+                    .overlay(RoundedRectangle(cornerRadius: 3).strokeBorder(Color(hex: 0xE6DED2)))
             }
         }
         .frame(width: 52)
         .padding(6)
-        .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Palette.app))
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(Color(hex: style == .daybook ? 0xF4EEE6 : 0xEEEDE8))
+        )
     }
 }

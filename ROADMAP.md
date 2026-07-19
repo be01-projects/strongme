@@ -69,7 +69,7 @@ Build order follows the spec's de-risk sequence.*
 - [ ] Protein, training frequency, weight trend, sleep as the four lenses
 
 ## 🔬 In trial
-- [ ] UI style A/B: "Soft cards" vs "Journal" (Aa button) — live with both, land one, remove the picker
+- [ ] UI style trial: "Soft cards" vs "Journal" (treatment) vs "Daybook" (layout + clay palette) — live with them, land one, remove the picker
 
 ## Backlog (unscheduled)
 - [ ] Dark-mode palette pass (currently forced light)

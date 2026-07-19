@@ -214,6 +214,74 @@ struct StatCard: View {
     }
 }
 
+// MARK: - Ambient stat strip (Daybook)
+//
+// "One insight, not a dashboard": Tier-0 data is ambient, so it gets one
+// quiet line — four small figures — instead of prime 2×2 real estate.
+
+struct StatStrip: View {
+    let snapshot: HealthSnapshot
+    var onOpen: (Metric) -> Void = { _ in }
+
+    var body: some View {
+        HStack(spacing: 0) {
+            cell(.steps, value: stepsShort, label: "steps")
+            divider
+            cell(.sleep, value: sleepShort, label: "sleep")
+            divider
+            cell(.training, value: "\(snapshot.workoutsThisWeek)×", label: "trained")
+            divider
+            cell(.weight, value: weightShort, label: snapshot.latestWeight != nil ? snapshot.weightUnitLabel : "weight")
+        }
+        .padding(.vertical, 12)
+        .overlay(alignment: .top) { JournalRule() }
+        .overlay(alignment: .bottom) { JournalRule() }
+    }
+
+    private var divider: some View {
+        Rectangle().fill(Palette.hairline).frame(width: 1, height: 26)
+    }
+
+    private func cell(_ metric: Metric, value: String, label: String) -> some View {
+        Button {
+            onOpen(metric)
+        } label: {
+            VStack(spacing: 2) {
+                Text(value)
+                    .font(AppFont.coach(17, .medium))
+                    .foregroundStyle(Palette.ink)
+                Text(label.uppercased())
+                    .font(AppFont.ui(9.5, .semibold))
+                    .kerning(0.5)
+                    .foregroundStyle(Palette.muted)
+            }
+            .frame(maxWidth: .infinity)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(label): \(value)")
+    }
+
+    private var stepsShort: String {
+        guard let steps = snapshot.stepsToday else { return "—" }
+        return steps >= 10_000
+            ? String(format: "%.1fk", Double(steps) / 1000)
+            : steps.formatted(.number.grouping(.automatic))
+    }
+
+    private var sleepShort: String {
+        guard let sleep = snapshot.sleepLastNight else { return "—" }
+        return String(format: "%.1fh", sleep / 3600)
+    }
+
+    private var weightShort: String {
+        guard let weight = snapshot.latestWeight else { return "—" }
+        return weight.truncatingRemainder(dividingBy: 1) == 0
+            ? String(Int(weight))
+            : String(format: "%.1f", weight)
+    }
+}
+
 // MARK: - Protein bar (the one warm signal)
 
 struct ProteinCard: View {
@@ -228,10 +296,12 @@ struct ProteinCard: View {
     }
 
     var body: some View {
-        if styleRaw == UIStyle.journal.rawValue {
-            journalBody
-        } else {
+        // Card keeps the boxed bar; journal AND daybook set the number as
+        // serif type over a thin signal thread
+        if styleRaw == UIStyle.card.rawValue {
             cardBody
+        } else {
+            journalBody
         }
     }
 
@@ -261,7 +331,7 @@ struct ProteinCard: View {
 
             GeometryReader { geometry in
                 ZStack(alignment: .leading) {
-                    Rectangle().fill(Color(hex: 0xE7E5DD))
+                    Rectangle().fill(Palette.track)
                     Rectangle()
                         .fill(Palette.apricot)
                         .frame(width: max(3, geometry.size.width * progress))
@@ -294,7 +364,7 @@ struct ProteinCard: View {
 
             GeometryReader { geometry in
                 ZStack(alignment: .leading) {
-                    Capsule().fill(Color(hex: 0xEFEDE7))
+                    Capsule().fill(Palette.track)
                     Capsule()
                         .fill(Palette.proteinGradient)
                         .frame(width: max(11, geometry.size.width * progress))
