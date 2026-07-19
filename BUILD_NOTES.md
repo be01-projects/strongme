@@ -4,6 +4,22 @@
 
 ---
 
+# Milestone 3, slice 1a — code-review fixes
+
+A high-effort review of the slice (8 finder angles → 39 candidates → 10 verified findings) surfaced one theme: the Siri path had skipped guards the in-app path earned. All ten fixed:
+
+1. **Typed in-memory pending actions** (`PendingIntentActions`, replacing the UserDefaults flags): fixes the Action-Button race (flag written after consumption already ran — certain failure when the app was frontmost), the stale distress flag firing on unrelated launches (declined Siri prompts now correctly evaporate), and two-sheet contention (one optional action = at most one presentation).
+2. **Usual recall can't hijack statements**: the regex now requires an explicit "log" or "usual" — "I had lunch" goes to the parser, as it should. And `topUsual` **excludes seeds**: recall never files food you've never actually eaten (seeds remain tappable chips).
+3. **Siri weight parity**: unspecified units resolve via the user's Health preference (was: pounds for everyone), and zero-value weights are rejected instead of written.
+4. **Explicit `context.save()`** after every intent mutation — background launches may never run autosave, and Siri must not confirm a log that then evaporates.
+5. **Empty-parse guard** on the Siri food path (in-app already had it), plus `UsualLearner` refuses to learn a nameless usual from empty items.
+6. **Usual meal labels stick**: one off-schedule dinner no longer flips a 20-time breakfast's label and breaks "log my usual breakfast".
+7. **ProteinSheet rebuilt on one live 7-day @Query** keyed to Today's `dayStart`: the bars can no longer go stale against the meal list, today's rows aren't fetched twice, and the sheet agrees with the screen behind it across midnight.
+
+Review also logged cleanup debt (duplicated sheet chrome/day-labels/bar-rows, the intent-vs-app routing switch, scattered settings keys) — deferred, tracked in the review report.
+
+---
+
 # Milestone 3, slice 1 — App Intents foundation
 
 "The best logging never opens the app." Siri, Shortcuts, and the Action Button now funnel into the same parser and stores as the talk control (`Intents/AppIntents.swift`):

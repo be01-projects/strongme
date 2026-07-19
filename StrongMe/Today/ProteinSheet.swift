@@ -10,20 +10,38 @@ import SwiftData
 import SwiftUI
 
 struct ProteinSheet: View {
+    /// Passed by TodayContent so the sheet and the screen behind it always
+    /// agree on what "today" is (the sheet has no rollover machinery of its own)
+    let dayStart: Date
+
     @Environment(\.modelContext) private var modelContext
     @Environment(ToastCenter.self) private var toast
 
     @AppStorage("proteinTargetGrams") private var proteinTarget = 150.0
 
-    @Query private var todaysFood: [FoodEntry]
-    @State private var weekTotals: [(day: Date, grams: Double)] = []
+    /// One live query over the whole week — today's list and the bars both
+    /// derive from it, so every write (including a Siri log landing while
+    /// the sheet is open) updates both halves together.
+    @Query private var weekFood: [FoodEntry]
     @State private var captureRequest: CaptureRequest?
     @State private var showCoach = false
 
-    init() {
-        let dayStart = Calendar.current.startOfDay(for: .now)
-        _todaysFood = Query(filter: #Predicate<FoodEntry> { $0.date >= dayStart },
-                            sort: \.date)
+    init(dayStart: Date) {
+        self.dayStart = dayStart
+        let weekAgo = Calendar.current.date(byAdding: .day, value: -6, to: dayStart) ?? dayStart
+        _weekFood = Query(filter: #Predicate<FoodEntry> { $0.date >= weekAgo },
+                          sort: \.date)
+    }
+
+    private var todaysFood: [FoodEntry] { weekFood.filter { $0.date >= dayStart } }
+
+    private var weekTotals: [(day: Date, grams: Double)] {
+        let calendar = Calendar.current
+        var byDay: [Date: Double] = [:]
+        for entry in weekFood {
+            byDay[calendar.startOfDay(for: entry.date), default: 0] += entry.proteinGrams
+        }
+        return byDay.keys.sorted().map { ($0, byDay[$0]!) }
     }
 
     private var proteinToday: Double { todaysFood.reduce(0) { $0 + $1.proteinGrams } }
@@ -102,10 +120,8 @@ struct ProteinSheet: View {
         .presentationDragIndicator(.hidden)
         .presentationBackground(Palette.app)
         .presentationCornerRadius(30)
-        .task { loadWeek() }
         .sheet(item: $captureRequest) { request in
             CaptureSheet(request: request)
-                .onDisappear { loadWeek() }
         }
         .sheet(isPresented: $showCoach) {
             CoachSheet(initialQuestion: "Am I on track with protein?")
@@ -170,10 +186,8 @@ struct ProteinSheet: View {
                 Button {
                     let (date, meal, items, raw) = (entry.date, entry.mealLabel, entry.items, entry.rawText)
                     modelContext.delete(entry)
-                    loadWeek()
                     toast.show("Deleted") { [modelContext] in
                         modelContext.insert(FoodEntry(date: date, mealLabel: meal, items: items, rawText: raw))
-                        loadWeek()
                     }
                 } label: {
                     Image(systemName: "trash")
@@ -236,19 +250,4 @@ struct ProteinSheet: View {
         return date.formatted(.dateTime.weekday(.abbreviated).day()).uppercased()
     }
 
-    private func loadWeek() {
-        let calendar = Calendar.current
-        let todayStart = calendar.startOfDay(for: .now)
-        guard let weekAgo = calendar.date(byAdding: .day, value: -6, to: todayStart) else { return }
-        let descriptor = FetchDescriptor<FoodEntry>(
-            predicate: #Predicate { $0.date >= weekAgo },
-            sortBy: [SortDescriptor(\.date)]
-        )
-        let entries = (try? modelContext.fetch(descriptor)) ?? []
-        var byDay: [Date: Double] = [:]
-        for entry in entries {
-            byDay[calendar.startOfDay(for: entry.date), default: 0] += entry.proteinGrams
-        }
-        weekTotals = byDay.keys.sorted().map { ($0, byDay[$0]!) }
-    }
 }

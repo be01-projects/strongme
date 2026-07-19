@@ -929,6 +929,7 @@ struct FlowLayout: Layout {
 enum UsualLearner {
     /// Confirmed meals become one-tap usuals; frequency wins over the seeds.
     static func record(items: [FoodItemRecord], meal: String, context: ModelContext) {
+        guard !items.isEmpty else { return }  // never learn a nameless usual
         let name = displayName(for: items)
         let all = (try? context.fetch(FetchDescriptor<UsualMeal>())) ?? []
         if let existing = all.first(where: { $0.name.localizedCaseInsensitiveCompare(name) == .orderedSame }) {
@@ -936,7 +937,12 @@ enum UsualLearner {
             existing.lastUsed = .now
             existing.items = items
             existing.isSeed = false
-            if meal != "unknown" { existing.mealLabel = meal }  // recency wins
+            // The label sticks once set: one off-schedule dinner of a
+            // 20-time breakfast must not break "log my usual breakfast".
+            // (Habit truly moved? Remove the usual and re-learn.)
+            if existing.mealLabel == "unknown", meal != "unknown" {
+                existing.mealLabel = meal
+            }
         } else {
             context.insert(UsualMeal(name: name, items: items, timesLogged: 1, mealLabel: meal))
         }

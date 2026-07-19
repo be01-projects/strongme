@@ -82,7 +82,7 @@ struct TodayContent: View {
     @AppStorage("dailyInsightText") private var dailyInsightText = ""
     @AppStorage("dailyInsightStamp") private var dailyInsightStamp = ""
 
-    @Environment(\.scenePhase) private var scenePhase
+    @State private var pendingActions = PendingIntentActions.shared
 
     @State private var captureRequest: CaptureRequest?
     @State private var showCoach = false
@@ -155,16 +155,16 @@ struct TodayContent: View {
             MetricSheet(metric: metric)
         }
         .sheet(isPresented: $showProtein) {
-            ProteinSheet()
+            ProteinSheet(dayStart: dayStart)
         }
         .sheet(isPresented: $showCare) {
             CareSheet()
         }
-        .onChange(of: scenePhase) { _, phase in
-            if phase == .active { consumePendingIntentFlags() }
+        .onChange(of: pendingActions.action) { _, _ in
+            consumePendingIntentAction()
         }
         .task {
-            consumePendingIntentFlags()
+            consumePendingIntentAction()
             if firstLaunchTimestamp == 0 { firstLaunchTimestamp = Date.now.timeIntervalSince1970 }
             #if DEBUG
             // Scripted screenshots / UI tests
@@ -193,17 +193,16 @@ struct TodayContent: View {
         }
     }
 
-    /// App Intents can't present UI — they leave a flag and (when needed)
-    /// open the app; we finish the job here.
-    private func consumePendingIntentFlags() {
-        let defaults = UserDefaults.standard
-        if defaults.bool(forKey: "pendingCare") {
-            defaults.removeObject(forKey: "pendingCare")
-            showCare = true
-        }
-        if defaults.bool(forKey: "pendingOpenCapture") {
-            defaults.removeObject(forKey: "pendingOpenCapture")
-            captureRequest = .voice()
+    /// App Intents can't present UI — they set a typed pending action and
+    /// (when needed) open the app; we finish the job here. Observed live via
+    /// onChange, so it works even when the app was already frontmost, and
+    /// checked once in .task for cold launches.
+    private func consumePendingIntentAction() {
+        guard let action = pendingActions.action else { return }
+        pendingActions.action = nil
+        switch action {
+        case .care: showCare = true
+        case .openCapture: captureRequest = .voice()
         }
     }
 

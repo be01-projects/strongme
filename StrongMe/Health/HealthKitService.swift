@@ -85,6 +85,17 @@ final class HealthKitService {
         snapshot = snap
     }
 
+    /// The user's preferred bodyweight unit, without needing a full refresh —
+    /// used by the Siri path where no snapshot has been loaded.
+    func prefersPounds() async -> Bool {
+        guard isAvailable else { return true }
+        if let units = try? await store.preferredUnits(for: [HKQuantityType(.bodyMass)]),
+           let unit = units[HKQuantityType(.bodyMass)] {
+            return unit == .pound()
+        }
+        return true
+    }
+
     // MARK: - Writes
 
     @discardableResult

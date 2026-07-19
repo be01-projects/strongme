@@ -45,6 +45,7 @@ struct LogEntryIntent: AppIntent, ForegroundContinuableIntent {
                 )
             }
             EntryLogger.saveFood(items: usual.items, meal: meal, rawText: text, context: context)
+            try? context.save()  // background launches may never autosave
             return .result(
                 dialog: "Logged your usual \(meal) — \(Int(usual.proteinGrams.rounded())) grams of protein.",
                 view: LogSnippetView(items: usual.items)
@@ -56,15 +57,24 @@ struct LogEntryIntent: AppIntent, ForegroundContinuableIntent {
 
         switch entry.kind {
         case .distress:
-            // Never a banner: open the app for the care response
-            UserDefaults.standard.set(true, forKey: "pendingCare")
+            // Never a banner: open the app for the care response. The action
+            // is in-memory on purpose — if the user declines Siri's prompt,
+            // it must not fire on a later unrelated launch.
+            PendingIntentActions.shared.action = .care
             throw needsToContinueInForegroundError("Let's take that into the app.")
 
         case .food:
             let items = entry.items.map {
                 FoodItemRecord(name: $0.name, proteinGrams: $0.proteinG, calories: $0.calories)
             }
+            guard !items.isEmpty else {
+                return .result(
+                    dialog: "I didn't catch any food in that — try naming what you ate.",
+                    view: LogSnippetView(items: [])
+                )
+            }
             EntryLogger.saveFood(items: items, meal: entry.meal, rawText: text, context: context)
+            try? context.save()  // background launches may never autosave
             let names = items.map(\.name).joined(separator: ", ")
             let protein = Int(items.reduce(0) { $0 + $1.proteinGrams }.rounded())
             return .result(
@@ -73,12 +83,23 @@ struct LogEntryIntent: AppIntent, ForegroundContinuableIntent {
             )
 
         case .weight:
-            let unit: HKUnit = entry.weightUnit == "kg" ? .gramUnit(with: .kilo) : .pound()
-            let label = entry.weightUnit == "kg" ? "kilograms" : "pounds"
-            do {
-                try await HealthKitService().saveWeight(value: entry.weightValue, unit: unit)
+            guard entry.weightValue > 0 else {
                 return .result(
-                    dialog: "Weight logged — \(formatted(entry.weightValue)) \(label).",
+                    dialog: "I couldn't find a number in that — try “182 this morning”.",
+                    view: LogSnippetView(items: [])
+                )
+            }
+            let health = HealthKitService()
+            // Same unit resolution as the in-app path: unspecified → the
+            // user's Health preference, not a pounds default
+            let usesPounds = entry.weightUnit == "unknown"
+                ? await health.prefersPounds()
+                : entry.weightUnit != "kg"
+            let unit: HKUnit = usesPounds ? .pound() : .gramUnit(with: .kilo)
+            do {
+                try await health.saveWeight(value: entry.weightValue, unit: unit)
+                return .result(
+                    dialog: "Weight logged — \(formatted(entry.weightValue)) \(usesPounds ? "pounds" : "kilograms").",
                     view: LogSnippetView(items: [])
                 )
             } catch {
@@ -108,6 +129,7 @@ struct LogEntryIntent: AppIntent, ForegroundContinuableIntent {
 
         case .reflection, .other:
             context.insert(ReflectionEntry(text: text, tags: entry.reflectionTags))
+            try? context.save()  // background launches may never autosave
             return .result(
                 dialog: "Kept in your words — never scored.",
                 view: LogSnippetView(items: [])
@@ -158,6 +180,7 @@ struct LogUsualIntent: AppIntent {
             )
         }
         EntryLogger.saveFood(items: usual.items, meal: meal.rawValue, rawText: "usual \(meal.rawValue)", context: context)
+        try? context.save()  // background launches may never autosave
         return .result(
             dialog: "Logged your usual \(meal.rawValue) — \(Int(usual.proteinGrams.rounded())) grams of protein.",
             view: LogSnippetView(items: usual.items)
@@ -177,7 +200,10 @@ struct TalkIntent: AppIntent {
 
     @MainActor
     func perform() async throws -> some IntentResult {
-        UserDefaults.standard.set(true, forKey: "pendingOpenCapture")
+        // In-memory and observed by TodayContent — works whether the app was
+        // cold, backgrounded, or already frontmost (a UserDefaults flag only
+        // consumed on scenePhase changes misses the already-active case)
+        PendingIntentActions.shared.action = .openCapture
         return .result()
     }
 }
