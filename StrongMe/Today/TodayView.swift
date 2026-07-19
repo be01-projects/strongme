@@ -375,9 +375,12 @@ struct TodayContent: View {
                     }
                 }
                 .padding(.vertical, 4)
-                .padding(.horizontal, 2)
             }
             .scrollIndicators(.hidden)
+            // Bleed to the screen edge so chips clip at the display, not at
+            // the content column's invisible 20pt inset mid-scroll
+            .padding(.horizontal, -20)
+            .contentMargins(.horizontal, 22, for: .scrollContent)
         }
     }
 
