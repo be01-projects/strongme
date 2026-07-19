@@ -59,8 +59,7 @@ Build order follows the spec's de-risk sequence.*
 ## ⏳ Milestone 3 — logging without opening the app
 - [x] App Intents foundation — LogEntryIntent (parse anything, optimistic + snippet), LogUsualIntent (hands-free meal enum), TalkIntent (open listening); distress opens the app, never a banner *(2026-07-18)*
 - [x] Action Button support — point it at "Talk to StrongMe" or "Log" in Settings
-- [ ] Lock Screen / Control Center widget (one-tap talk) — needs widget extension target
-- [ ] Home Screen widget (protein bar + today at a glance) — nice-to-have
+- [x] Widget extension (`StrongMeWidgets` appex): Lock Screen mic (one-tap talk), Lock Screen + Home Screen protein-at-a-glance, Control Center "Talk to StrongMe" control — reads a small App Group snapshot the app publishes, never the store *(2026-07-19)*
 - [ ] Apple Watch complication + minimal watch capture — *likely its own slice; largest lift*
 
 ## ⏳ Milestone 4 — trends

@@ -113,7 +113,8 @@ struct LogEntryIntent: AppIntent, ForegroundContinuableIntent {
             guard entry.targetProteinG > 0 else {
                 return .result(dialog: "I couldn't find a number in that.", view: LogSnippetView(items: []))
             }
-            UserDefaults.standard.set(entry.targetProteinG, forKey: "proteinTargetGrams")
+            UserDefaults.standard.set(entry.targetProteinG, forKey: AppSettings.proteinTarget)
+            WidgetBridge.publish(context: context)
             return .result(
                 dialog: "Protein target set to \(Int(entry.targetProteinG)) grams a day.",
                 view: LogSnippetView(items: [])
@@ -124,7 +125,7 @@ struct LogEntryIntent: AppIntent, ForegroundContinuableIntent {
             guard !name.isEmpty else {
                 return .result(dialog: "I didn't catch the name.", view: LogSnippetView(items: []))
             }
-            UserDefaults.standard.set(name, forKey: "userName")
+            UserDefaults.standard.set(name, forKey: AppSettings.userName)
             return .result(dialog: "Nice to meet you, \(name).", view: LogSnippetView(items: []))
 
         case .reflection, .other:

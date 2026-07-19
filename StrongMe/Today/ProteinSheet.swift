@@ -17,7 +17,7 @@ struct ProteinSheet: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(ToastCenter.self) private var toast
 
-    @AppStorage("proteinTargetGrams") private var proteinTarget = 150.0
+    @AppStorage(AppSettings.proteinTarget) private var proteinTarget = 150.0
 
     /// One live query over the whole week — today's list and the bars both
     /// derive from it, so every write (including a Siri log landing while

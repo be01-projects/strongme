@@ -62,7 +62,7 @@ struct CaptureSheet: View {
     @Environment(HealthKitService.self) private var health
     @Environment(ToastCenter.self) private var toast
 
-    @AppStorage("proteinTargetGrams") private var proteinTarget = 150.0
+    @AppStorage(AppSettings.proteinTarget) private var proteinTarget = 150.0
 
     @State private var speech = SpeechRecognizer()
     @State private var phase: Phase = .idle
@@ -538,7 +538,7 @@ struct CaptureSheet: View {
                 let previous = proteinTarget
                 proteinTarget = grams
                 toast.show("Target set · \(Int(grams))g protein") {
-                    UserDefaults.standard.set(previous, forKey: "proteinTargetGrams")
+                    UserDefaults.standard.set(previous, forKey: AppSettings.proteinTarget)
                 }
                 dismiss()
             } label: {
@@ -571,10 +571,10 @@ struct CaptureSheet: View {
                 .padding(.bottom, 18)
 
             Button {
-                let previous = UserDefaults.standard.string(forKey: "userName") ?? ""
-                UserDefaults.standard.set(name, forKey: "userName")
+                let previous = UserDefaults.standard.string(forKey: AppSettings.userName) ?? ""
+                UserDefaults.standard.set(name, forKey: AppSettings.userName)
                 toast.show("Nice to meet you, \(name)") {
-                    UserDefaults.standard.set(previous, forKey: "userName")
+                    UserDefaults.standard.set(previous, forKey: AppSettings.userName)
                 }
                 dismiss()
             } label: {

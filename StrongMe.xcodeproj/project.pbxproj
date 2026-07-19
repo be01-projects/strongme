@@ -6,8 +6,37 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		4D57464700000000000000AC /* StrongMeWidgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 4D57464700000000000000A1 /* StrongMeWidgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		4D57464700000000000000AE /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 4D78A64630048BE900033FEC /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 4D57464700000000000000A4;
+			remoteInfo = StrongMeWidgets;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		4D57464700000000000000AB /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				4D57464700000000000000AC /* StrongMeWidgets.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
 		4D78A64E30048BE900033FEC /* StrongMe.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = StrongMe.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		4D57464700000000000000A1 /* StrongMeWidgets.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = StrongMeWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -17,6 +46,13 @@
 				Info.plist,
 			);
 			target = 4D78A64D30048BE900033FEC /* StrongMe */;
+		};
+		4D57464700000000000000A3 /* Exceptions for "StrongMeWidgets" folder in "StrongMeWidgets" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 4D57464700000000000000A4 /* StrongMeWidgets */;
 		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
@@ -29,10 +65,25 @@
 			path = StrongMe;
 			sourceTree = "<group>";
 		};
+		4D57464700000000000000A2 /* StrongMeWidgets */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				4D57464700000000000000A3 /* Exceptions for "StrongMeWidgets" folder in "StrongMeWidgets" target */,
+			);
+			path = StrongMeWidgets;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		4D78A64B30048BE900033FEC /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		4D57464700000000000000A6 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -46,6 +97,7 @@
 			isa = PBXGroup;
 			children = (
 				4D78A65030048BE900033FEC /* StrongMe */,
+				4D57464700000000000000A2 /* StrongMeWidgets */,
 				4D78A64F30048BE900033FEC /* Products */,
 			);
 			sourceTree = "<group>";
@@ -54,6 +106,7 @@
 			isa = PBXGroup;
 			children = (
 				4D78A64E30048BE900033FEC /* StrongMe.app */,
+				4D57464700000000000000A1 /* StrongMeWidgets.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -68,10 +121,12 @@
 				4D78A64A30048BE900033FEC /* Sources */,
 				4D78A64B30048BE900033FEC /* Frameworks */,
 				4D78A64C30048BE900033FEC /* Resources */,
+				4D57464700000000000000AB /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				4D57464700000000000000AD /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				4D78A65030048BE900033FEC /* StrongMe */,
@@ -83,7 +138,37 @@
 			productReference = 4D78A64E30048BE900033FEC /* StrongMe.app */;
 			productType = "com.apple.product-type.application";
 		};
+		4D57464700000000000000A4 /* StrongMeWidgets */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 4D57464700000000000000A8 /* Build configuration list for PBXNativeTarget "StrongMeWidgets" */;
+			buildPhases = (
+				4D57464700000000000000A5 /* Sources */,
+				4D57464700000000000000A6 /* Frameworks */,
+				4D57464700000000000000A7 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				4D57464700000000000000A2 /* StrongMeWidgets */,
+			);
+			name = StrongMeWidgets;
+			packageProductDependencies = (
+			);
+			productName = StrongMeWidgets;
+			productReference = 4D57464700000000000000A1 /* StrongMeWidgets.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 /* End PBXNativeTarget section */
+
+/* Begin PBXTargetDependency section */
+		4D57464700000000000000AD /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 4D57464700000000000000A4 /* StrongMeWidgets */;
+			targetProxy = 4D57464700000000000000AE /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin PBXProject section */
 		4D78A64630048BE900033FEC /* Project object */ = {
@@ -94,6 +179,9 @@
 				LastUpgradeCheck = 2600;
 				TargetAttributes = {
 					4D78A64D30048BE900033FEC = {
+						CreatedOnToolsVersion = 26.0.1;
+					};
+					4D57464700000000000000A4 = {
 						CreatedOnToolsVersion = 26.0.1;
 					};
 				};
@@ -113,6 +201,7 @@
 			projectRoot = "";
 			targets = (
 				4D78A64D30048BE900033FEC /* StrongMe */,
+				4D57464700000000000000A4 /* StrongMeWidgets */,
 			);
 		};
 /* End PBXProject section */
@@ -125,10 +214,24 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		4D57464700000000000000A7 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		4D78A64A30048BE900033FEC /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		4D57464700000000000000A5 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -325,6 +428,62 @@
 			};
 			name = Release;
 		};
+		4D57464700000000000000A9 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = StrongMeWidgets/StrongMeWidgets.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = KRQ9F4Q9RM;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = StrongMeWidgets/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = StrongMe;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.be01.StrongMe.Widgets;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		4D57464700000000000000AA /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = StrongMeWidgets/StrongMeWidgets.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = KRQ9F4Q9RM;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = StrongMeWidgets/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = StrongMe;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.be01.StrongMe.Widgets;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -342,6 +501,15 @@
 			buildConfigurations = (
 				4D78A65A30048BEA00033FEC /* Debug */,
 				4D78A65B30048BEA00033FEC /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		4D57464700000000000000A8 /* Build configuration list for PBXNativeTarget "StrongMeWidgets" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				4D57464700000000000000A9 /* Debug */,
+				4D57464700000000000000AA /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

@@ -75,12 +75,12 @@ struct TodayContent: View {
     private var usuals: [UsualMeal]
     @Query(sort: \ReflectionEntry.date, order: .reverse) private var reflections: [ReflectionEntry]
 
-    @AppStorage("proteinTargetGrams") private var proteinTarget = 150.0
-    @AppStorage("firstLaunchDate") private var firstLaunchTimestamp = 0.0
+    @AppStorage(AppSettings.proteinTarget) private var proteinTarget = 150.0
+    @AppStorage(AppSettings.firstLaunchDate) private var firstLaunchTimestamp = 0.0
     // Claude-written daily read; the stamp tracks day + data state so the
     // read regenerates after new logs instead of going stale
-    @AppStorage("dailyInsightText") private var dailyInsightText = ""
-    @AppStorage("dailyInsightStamp") private var dailyInsightStamp = ""
+    @AppStorage(AppSettings.dailyInsightText) private var dailyInsightText = ""
+    @AppStorage(AppSettings.dailyInsightStamp) private var dailyInsightStamp = ""
 
     @State private var pendingActions = PendingIntentActions.shared
 
@@ -230,6 +230,7 @@ struct TodayContent: View {
         switch action {
         case .care: showCare = true
         case .openCapture: captureRequest = .voice()
+        case .protein: showProtein = true
         }
     }
 
@@ -296,7 +297,7 @@ struct TodayContent: View {
         .padding(.top, 14)
     }
 
-    @AppStorage("userName") private var userName = ""
+    @AppStorage(AppSettings.userName) private var userName = ""
     @AppStorage(UIStyle.storageKey) private var styleRaw = UIStyle.card.rawValue
     @State private var showAppearance = false
 

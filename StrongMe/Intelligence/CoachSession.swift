@@ -84,8 +84,8 @@ final class CoachSession {
         // reuse it while the underlying data hasn't changed.
         let stamp = Self.reviewStamp(for: dataSummary)
         let defaults = UserDefaults.standard
-        if defaults.string(forKey: "coachReviewStamp") == stamp,
-           let cached = defaults.string(forKey: "coachReviewText"), !cached.isEmpty {
+        if defaults.string(forKey: AppSettings.coachReviewStamp) == stamp,
+           let cached = defaults.string(forKey: AppSettings.coachReviewText), !cached.isEmpty {
             review = cached
             apiMessages.append(["role": "assistant", "content": cached])
             return
@@ -101,8 +101,8 @@ final class CoachSession {
             )
             apiMessages.append(["role": "assistant", "content": reply])
             review = reply
-            defaults.set(reply, forKey: "coachReviewText")
-            defaults.set(stamp, forKey: "coachReviewStamp")
+            defaults.set(reply, forKey: AppSettings.coachReviewText)
+            defaults.set(stamp, forKey: AppSettings.coachReviewStamp)
         } catch {
             review = fallbackText(for: error)
         }

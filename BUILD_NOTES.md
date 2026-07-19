@@ -4,6 +4,24 @@
 
 ---
 
+# Milestone 3, slice 2 — widgets (Lock Screen, Home Screen, Control Center)
+
+New `StrongMeWidgets` extension target, embedded in the app:
+
+- **Lock Screen mic** (circular): one tap → app opens straight into voice capture via `strongme://talk`.
+- **Protein at a glance**: Home Screen small (grams, target, gradient bar in the current UI style's palette) + Lock Screen circular gauge and rectangular bar. Tapping any of them deep-links to the protein sheet (`strongme://protein`).
+- **Control Center**: "Talk to StrongMe" control (add it in Control Center's edit mode; also assignable to the Action Button as a control).
+
+**Architecture** — the widget never opens the SwiftData store. The app publishes a tiny JSON snapshot (`WidgetSnapshot`: day, protein, target, style) to App Group defaults (`group.com.be01.StrongMe`) and pokes `WidgetCenter` — on every food save (`EntryLogger.saveFood`, so Siri logging updates widgets too), on protein-target change via Siri, and once on backgrounding, which sweeps up deletes/edits/undo/style changes without instrumenting every closure. A snapshot from yesterday renders as **0g** — the truthful read of a new day — and the timeline carries a midnight entry so the reset happens without the app.
+
+Deep links route through `onOpenURL` → the same in-process `PendingIntentActions` channel the App Intents use (no persisted flags, nothing stale).
+
+Alongside: `AppSettings` now holds every persisted-defaults key (the code-review's "scattered raw strings" cleanup) plus the App Group constants the two processes must agree on.
+
+**Device note**: automatic signing needs the App Group capability on both bundle IDs — first build on device, let Xcode register `group.com.be01.StrongMe` (it will offer to). Verified on simulator: appex embeds + validates, snapshot lands in the group container, `strongme://talk` reaches the app.
+
+---
+
 # UI style A/B/C — third take: "Daybook"
 
 Where Journal changed only the treatment, Daybook changes **layout and palette**, each with a stated reason:

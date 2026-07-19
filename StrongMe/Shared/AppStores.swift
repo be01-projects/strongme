@@ -33,6 +33,7 @@ final class PendingIntentActions {
     enum Action {
         case openCapture
         case care
+        case protein  // widget tap → today's meals
     }
 
     var action: Action?

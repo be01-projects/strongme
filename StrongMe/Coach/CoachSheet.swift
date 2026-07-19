@@ -18,7 +18,7 @@ struct CoachSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(HealthKitService.self) private var health
 
-    @AppStorage("proteinTargetGrams") private var proteinTarget = 150.0
+    @AppStorage(AppSettings.proteinTarget) private var proteinTarget = 150.0
 
     @State private var session = CoachSession()
     @State private var question = ""

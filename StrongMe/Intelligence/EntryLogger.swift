@@ -24,6 +24,7 @@ enum EntryLogger {
         let entry = FoodEntry(date: date, mealLabel: meal, items: items, rawText: rawText)
         context.insert(entry)
         UsualLearner.record(items: items, meal: meal, context: context)
+        WidgetBridge.publish(context: context)
         return entry
     }
 
