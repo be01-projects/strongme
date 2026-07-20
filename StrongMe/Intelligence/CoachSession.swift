@@ -110,7 +110,8 @@ final class CoachSession {
 
     /// Day + the non-volatile summary lines. Steps tick up all day and the
     /// timestamp always moves — neither should force a fresh review.
-    private static func reviewStamp(for summary: String) -> String {
+    /// Internal (not private) so the cache-invalidation rules stay pinned by tests.
+    static func reviewStamp(for summary: String) -> String {
         let dayKey = Date.now.formatted(.iso8601.year().month().day())
         let stable = summary
             .split(separator: "\n")

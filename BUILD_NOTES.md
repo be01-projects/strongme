@@ -4,6 +4,21 @@
 
 ---
 
+# Tests — the intelligence layer, pinned
+
+New `StrongMeTests` unit-test target (hosted in the app, Swift Testing, runs with `xcodebuild test -scheme StrongMe`). 19 tests pin the behaviors past code reviews caught regressions in, rather than chasing UI:
+
+- **Usual recall regex** — explicit forms match; "I had lunch" (the review bug) stays a statement.
+- **topUsual** — seeds are never recalled; most-established wins per meal.
+- **UsualLearner** — meal labels stick once set; unknown upgrades; seeds graduate; empty items learn nothing.
+- **Offline fallback parser** — distress overrides everything (including food-ish sentences); "call me steve" vs "i'm exhausted"; weight needs context ("ate 2 eggs" is food, not a bodyweight); unclassifiable input is kept, never dropped.
+- **Coach cache stamp** — steps/timestamp changes don't re-bill a review; real data changes do (`reviewStamp` made internal for this).
+- **App↔widget snapshot contract** — a frozen JSON fixture must decode, so renaming a `WidgetSnapshot` field on either side fails a test instead of silently blanking the widget.
+
+Gotcha worth remembering: a SwiftData `ModelContext` does not keep its `ModelContainer` alive — test helpers must return the container, or the first use traps inside SwiftData and takes the whole parallel run with it.
+
+---
+
 # Milestone 3, slice 2 — widgets (Lock Screen, Home Screen, Control Center)
 
 New `StrongMeWidgets` extension target, embedded in the app:
